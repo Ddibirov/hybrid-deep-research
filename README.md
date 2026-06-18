@@ -88,7 +88,7 @@ cp config.example.json config.json
   - **Web search** capability
   - **HTTP requests** via curl or equivalent (for GitHub API, HN Algolia API, Reddit JSON)
 - A search backend (e.g., SearXNG, or any web search API)
-- Optional but recommended for Reddit: authenticated access via [rdt-cli](https://github.com/htsummersky/rdt-cli) + `browser-cookie3` (reads Chrome cookies automatically, no manual export needed). Without it, Reddit falls back to `site:` search which returns poor results for niche topics. See [reddit-cookies skill](https://github.com/...) for setup details.
+- Optional but recommended for Reddit: authenticated access via [rdt-cli](https://github.com/htsummersky/rdt-cli) + `browser-cookie3` (reads Chrome cookies automatically, no manual export needed). Without it, Reddit falls back to `site:` search which returns poor results for niche topics.
 - Optional: X/Twitter CLI, YouTube transcript tool (falls back to `site:` search)
 
 ## Configuration
