@@ -1,0 +1,14 @@
+# Local config — keep your model/provider private
+config.json
+
+# Research output
+.hybrid-research/
+
+# Internal analysis files (not for publication)
+references/improvement-roadmap.md
+references/improvement-roadmap-v2.md
+references/odysseus-analysis.md
+references/test-run-2026-06-18.md
+references/repo-analysis-dzhng.md
+references/repo-analysis-gpt-researcher.md
+references/repo-analysis-langchain.md

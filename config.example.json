@@ -1,0 +1,23 @@
+{
+  "active_profile": "balanced",
+  "profiles": {
+    "quality": {
+      "model": "your-strong-model-id",
+      "provider": "your-provider-name",
+      "description": "Strong reasoning model for exhaustive research"
+    },
+    "balanced": {
+      "model": "your-default-model-id",
+      "provider": "your-provider-name",
+      "description": "Good balance of quality and cost"
+    },
+    "fast": {
+      "model": "your-fast-model-id",
+      "provider": "your-provider-name",
+      "description": "Fast and cheap for quick scans"
+    }
+  },
+  "comparison_mode": false,
+  "last_used": null,
+  "usage_count": {}
+}
