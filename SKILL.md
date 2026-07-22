@@ -1,6 +1,7 @@
 ---
 name: hybrid-deep-research
 description: >-
+  Use when user needs comprehensive multi-source research, deep analysis, or structured report synthesis from web + social sources.
   Multi-round hybrid research pipeline. Combines iterative deepening,
   parallel subagents, director/investigator pattern, social signal collection
   (Reddit, X, HN, YouTube, GitHub), and verification with retry.
@@ -35,11 +36,12 @@ Multi-round research pipeline. All roles run on one model (set via `delegation.m
 
 ## Execution Mode
 
-**Silent execution.** The user gives a research request and receives the final report. Nothing in between.
+**Silent execution.** The user gives a research request and receives the final report. Nothing in between. This is non-negotiable — the user explicitly corrected this behavior.
 
 - Do NOT show intermediate phases, progress updates, logs, or statistics
 - Do NOT ask for brief approval unless the user explicitly wants it — use the question to auto-detect scope and proceed
-- Do NOT output "Phase 1:...", "Phase 2:...", "Using model:...", "Round 1...", "Findings:...", "Gap Check:...", "Director Decision:..." or any pipeline internals
+- Do NOT output "Phase 1:...", "Phase 2:...", "Using model:...". "Round 1...", "Findings:...", "Gap Check:...", "Director Decision:..." or any pipeline internals
+- Do NOT show todo lists, gap analysis, director decisions, or verification results to the user
 - DO save the report to `.hybrid-research/{slug}/{slug}.md`
 - DO send the report content to the user as the final message
 - If the research fails (search unavailable, all investigators crash), send a brief error message — not pipeline diagnostics
@@ -125,10 +127,6 @@ USER INPUT
 **All roles in a run use one model** (set via `delegation.model` in your agent config).
 
 See `references/models.md` for model recommendations by tier.
-See `references/odysseus-analysis.md` for analysis of the Odysseus deep research engine.
-See `references/improvement-roadmap-v2.md` for improvement roadmap (meta-research + repo analysis, 11 actionable items).
-See `references/repo-analysis-dzhng.md`, `references/repo-analysis-gpt-researcher.md`, `references/repo-analysis-langchain.md` for detailed architectural analysis of reference implementations.
-See `references/test-run-2026-06-18.md` for first pipeline test run analysis — pitfalls and lessons learned.
 
 **To compare models:** run the same research question as separate runs with different models. Save each report, then compare.
 
@@ -153,9 +151,7 @@ Copy `config.example.json` to `config.json` and adjust for your environment:
 
 ### Phase 0: Model Check
 
-Read `delegation.model` from agent config. Display: "Using model: {model} (provider: {provider})".
-
-If no model configured, prompt user to pick a profile from `config.json` and set it.
+Read `delegation.model` from agent config. Do NOT display the model to the user — it's internal. If no model configured, prompt user to pick a profile from `config.json` and set it.
 
 ### Phase 1: Prompt Master (brief generation + category detection)
 
@@ -204,20 +200,10 @@ Prompt Master auto-detects depth from question complexity. User can override in 
 **If user mentions "official" / "announcement" / "release"** → emphasize web + GitHub.
 **If user mentions "trend" / "happening" / "recent"** → set time-box to 30 days + social sources.
 
-### Phase 1b: Brief Approval (Human-in-the-Loop)
+### Phase 1b: Brief Approval (Human-in-the-Loop — OFF by default)
 
-**This step is OFF by default.** Only ask for approval if the user explicitly says "let me see the plan first" or the question is highly ambiguous. Default: proceed silently from question to report.
-
-Present the brief to the user (including detected category and output format). User confirms (Y) or adjusts:
-- "Don't search Reddit, only GitHub"
-- "Add Polymarket for prediction markets"
-- "Narrow to last 7 days"
-- "Skip social, focus on official docs"
-- "Make it a comparison" or "Just give me a summary" (overrides detected category)
-
-If user confirms → proceed to Director. If user adjusts → regenerate brief with adjustments, then proceed.
-
-**Skip this step** if user explicitly says "just research it" or the question is unambiguous.
+**Skip this phase unless the user explicitly says "let me see the plan first".**
+Proceed silently from question to report. If the user does ask, present the brief and let them adjust scope/sources/category, then proceed to Director.
 
 ### Phase 2: Director (decomposition)
 
@@ -328,8 +314,7 @@ Zero-result subtopics: [list] — if 2+ consecutive searches returned nothing, E
 Agent failures: [list] — subtopics where investigator crashed
 ```
 
-**If 0 gaps → proceed to synthesis.**
-**If gaps (and rate-limited/zero-result sources are not the only gaps) → Director reformulates queries for next round.**
+*Decision is made by Director Review (Phase 5). This phase only collects and structures gap data.*
 
 ### Phase 4.5: Critic Review (exhaustive mode only)
 
@@ -375,27 +360,42 @@ Refined queries: [only if CONTINUE]
 - Social signals suggest important developments not yet in web findings
 - <2 sources for key aspects
 
-**SYNTHESIZE triggers:**
-- All key aspects covered with 2+ sources
-- Social + web findings aligned
-- 4 rounds reached (or depth-based max: surface=1, moderate=2, exhaustive=4)
-- Two consecutive rounds with no new data
-- Persistent rate limits blocking critical subtopics (note in Uncertainties section)
-- **Zero-results subtopic excluded** (see "Edge Cases" below)
+**SYNTHESIZE triggers (priority order — first match wins):**
+1. **Max rounds reached** — surface=1, moderate=2, exhaustive=4 rounds completed → SYNTHESIZE unconditionally
+2. **No new data for 2 consecutive rounds** → SYNTHESIZE (further rounds won't help)
+3. **All key aspects covered with 2+ sources** → SYNTHESIZE if ≥2 rounds completed
+4. **Persistent rate limits** blocking critical subtopics → SYNTHESIZE, note in Uncertainties
 
-**Evolving report update:** If Decision is CONTINUE, before looping back, run Synthesist in evolving mode:
-- Take `evolving_report` from state.json + this round's new findings
-- Synthesist produces updated draft report
-- Save updated draft back to state.json as `evolving_report`
-- The report grows organically round by round
+**CONTINUE triggers (only if no SYNTHESIZE trigger matched):**
+- Critical subtopic has <2 sources
+- Key contradiction unresolved
+- Social signals suggest major development not in web findings
+- Round 1-2 with clear gaps remaining (minimum exploration not done)
 
-**Smart stop rule:** If round_num is well below max_rounds (e.g. round 1-2), prefer CONTINUE unless the report is already exhaustive. This prevents premature stopping early in the process.
+**Priority rule:** SYNTHESIZE triggers 1-2 override Smart stop. Never loop past max_rounds.
 
 ### Phase 6: Synthesis
 
 Synthesist operates in two modes:
 
 **Per-round synthesis (evolving mode):** After each round's Director Review, if CONTINUE, Synthesist takes `evolving_report` (from state.json) + this round's new findings → updated draft. Uses only the last `synthesis_window` (default 10) findings to control context — earlier findings are already integrated into the draft. Saves updated draft back to state.json.
+
+**Evolving report format.** The evolving draft must use this stable structure so Synthesist in FINAL mode can polish it without restructuring:
+
+\```
+# {Topic} — Research Report (Round {N}/{max_rounds})
+
+## Current Findings
+{bullet-point synthesis of what's known so far, with inline citations [N]}
+
+## Open Questions
+{questions this round's findings didn't answer}
+
+## Next Round Targets
+{if Director said CONTINUE — what to investigate next}
+\```
+
+Synthesist in EVOLVING mode MUST preserve this structure across rounds. Only add content, don't restructure. The FINAL mode Synthesist will convert this to the final report format in the next section.
 
 **Final synthesis (polish mode):** When Director says SYNTHESIZE, Synthesist takes the `evolving_report` + any remaining findings → produces the final polished report with full structure, citations, category format.
 
@@ -569,3 +569,18 @@ Raw findings saved to `.hybrid-research/{slug}/raw_findings/{subtopic}.md`.
 - **Dynamic time-boxing:** If the user's question refers to a specific recent event (launch, release, announcement), auto-detect and narrow the time-box to "last 24 hours" or "last 7 days" instead of defaulting to "last 30 days". Set this in the Prompt Master brief.
 - **Enforce time-box in queries.** When a time-box is active, Investigators MUST filter results by date. Use `after:YYYY-MM-DD` in web queries, `time_range=month` for SearXNG/Reddit, `numericFilters=created_at_i>` for HN Algolia. Stale data older than time-box is REJECTED in Gap Check — do not pass it to Synthesist.
 - **Verification failure after 3 retries:** If Verifier rejects the report 3 times, publish as-is with `status: unverified_gaps` in the YAML frontmatter. Add the verifier's final reason to the "Contradictions & Uncertainties" section. Do NOT loop forever.
+
+## Appendix: Alternative Modes
+
+### Delegated Director Mode
+
+Use this when the user explicitly says the parent orchestrator must **not research personally** and wants subagents to find evidence and report back.
+
+1. Dispatch one child with `role='orchestrator'` as research director.
+2. Give it a self-contained brief: current date, exact local files (if any), authoritative sources, research dimensions, output schema, save path, and prohibited writes.
+3. Require the director to spawn at least three independent investigators with non-overlapping domains, then perform gap-check, synthesis, and citation verification itself.
+4. The parent must not call web, browser, or terminal tools for research while the delegated run is active. It only routes the mission and later verifies the returned artifact and cited URLs before presenting conclusions.
+5. For audits of live configuration or context files, investigators may read exact files but must not edit them. Research and implementation approval are separate stages.
+6. Return recommendations by independent domain or file rather than collapsing them into one mega-pipeline when the user wants to evaluate proposals separately.
+
+Prefer this over several flat child calls when the parent must remain available for dialogue and the research needs iterative rounds. The nested director owns investigator batching, retries, and synthesis; the parent receives one evidence package.
