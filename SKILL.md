@@ -8,7 +8,7 @@ description: >-
   Use when user asks for "deep research", "research report", "investigate X",
   "what's happening with Y", "comprehensive analysis of Z", or any question
   requiring 5+ sources synthesized into a structured report with citations.
-version: 4.0.1
+version: 4.0.2
 author: Ddibirov
 license: MIT
 metadata:
