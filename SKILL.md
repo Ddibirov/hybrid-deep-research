@@ -8,7 +8,7 @@ description: >-
   Use when user asks for "deep research", "research report", "investigate X",
   "what's happening with Y", "comprehensive analysis of Z", or any question
   requiring 5+ sources synthesized into a structured report with citations.
-version: 4.0.2
+version: 4.1.0
 author: Ddibirov
 license: MIT
 metadata:
@@ -122,36 +122,19 @@ USER INPUT
           FINAL REPORT
 ```
 
-## Model Configuration
+## Model
 
-**All roles in a run use one model** (set via `delegation.model` in your agent config).
-
-See `references/models.md` for model recommendations by tier.
-
-**To compare models:** run the same research question as separate runs with different models. Save each report, then compare.
+**All roles in a run use one model** — the agent's default (`delegation.model` in your agent config). No profile or per-role model selection.
 
 ## Config
 
-Copy `config.example.json` to `config.json` and adjust for your environment:
-
-```json
-{
-  "active_profile": "balanced",
-  "profiles": {
-    "quality": { "model": "your-strong-model", "provider": "your-provider" },
-    "balanced": { "model": "your-default-model", "provider": "your-provider" },
-    "fast": { "model": "your-fast-model", "provider": "your-provider" }
-  }
-}
-```
-
-`config.json` is local — do not commit it. `config.example.json` is the template.
+No config file required. The pipeline runs entirely on `delegation.model` from the agent config.
 
 ## Procedure
 
 ### Phase 0: Model Check
 
-Read `delegation.model` from agent config. Do NOT display the model to the user — it's internal. If no model configured, prompt user to pick a profile from `config.json` and set it.
+Read `delegation.model` from agent config. Use it for all roles. Do NOT display the model to the user — it's internal.
 
 ### Phase 1: Prompt Master (brief generation + category detection)
 
@@ -554,7 +537,7 @@ Raw findings saved to `.hybrid-research/{slug}/raw_findings/{subtopic}.md`.
 - **Hard limit: 4 rounds (exhaustive mode).** Surface=1, moderate=2, exhaustive=4. Director respects depth mode. If not enough after max rounds, report what you have with gaps noted.
 - **Verification is mandatory.** 3 retries max. After 3 FAILs → publish with `status: unverified_gaps`.
 - **Prune before Synthesis.** Investigators must return structured records (rational, evidence, summary) — not raw prose. Low-quality findings (boilerplate, cookie banners, copyright notices) must be discarded at extraction time.
-- **All roles share one model.** There is no per-role model separation. To compare models, run separate research sessions.
+- **All roles share one model** (`delegation.model`). There is no per-role model separation.
 - **Agent failures happen.** Subagents can crash, timeout, or return garbage. Always retry once, then log `[AGENT_FAILED]` and let Director decide.
 - **Web extract limit.** Investigators MUST NOT call web_extract more than 3 times per round. After 3 extractions — work with search snippets only. Excessive web_extract calls cause subagent timeouts (600s limit). In the test run, one investigator timed out after 13 API calls — the retry with 0 web_extract calls completed in 61 seconds.
 - **web_extract is the #1 timeout cause.** Investigators that call web_extract on every search result will timeout at 600s. Limit to 2-3 web_extract calls per investigator. If an investigator times out, retry with a LIGHTWEIGHT variant: "DO NOT use web_extract. Only use web_search and curl. Summarize from search result snippets only." This completes in ~60s vs 600s timeout.

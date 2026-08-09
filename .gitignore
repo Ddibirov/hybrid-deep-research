@@ -1,6 +1,3 @@
-# Local config — keep your model/provider private
-config.json
-
 # Research output
 .hybrid-research/
 

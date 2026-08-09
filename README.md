@@ -1,7 +1,7 @@
 # Hybrid Deep Research
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-![Version](https://img.shields.io/badge/version-4.0.2-blue)
+![Version](https://img.shields.io/badge/version-4.1.0-blue)
 
 A prompt-only multi-round research pipeline for AI agents. **No code, no dependencies** — pure methodology, adaptable to any agent framework.
 
@@ -24,7 +24,7 @@ User Input → Brief (auto category + depth) → Director → Investigators (par
     → (SYNTHESIZE: Synthesist final polish → Verifier → Report)
 ```
 
-All roles share one model. See `references/models.md` for recommendations.
+All roles share one model — the agent's default (`delegation.model`).
 
 ## Depth Modes
 
@@ -67,16 +67,7 @@ Copy this directory to your Hermes skills folder:
 cp -r hybrid-deep-research ~/.hermes/skills/research/
 ```
 
-Then configure your model:
-
-```bash
-# Option 1: Set delegation.model in Hermes config
-hermes config set delegation.model 'your-model-id'
-
-# Option 2: Use config.json profiles
-cp config.example.json config.json
-# Edit config.json with your model and provider
-```
+No model configuration needed — the skill uses `delegation.model` from the agent config.
 
 ### As a standalone reference
 
@@ -94,11 +85,7 @@ cp config.example.json config.json
 
 ## Configuration
 
-1. Copy `config.example.json` to `config.json`
-2. Set your model profiles (quality / balanced / fast)
-3. Set `active_profile` to your default
-
-`config.json` is gitignored — keep your local config private.
+No configuration required. All roles run on `delegation.model` from the agent config.
 
 ## Usage
 
@@ -129,13 +116,12 @@ hybrid-deep-research/
 ├── SKILL.md                    # Main skill — pipeline procedure
 ├── README.md                   # This file
 ├── LICENSE                     # MIT
-├── config.example.json         # Template config (copy to config.json)
 ├── .gitignore
 ├── references/
-│   ├── roles.md                # Detailed role prompts for all 8 roles
-│   └── models.md               # Model recommendations by tier and provider
+│   └── roles.md                # Detailed role prompts for all 8 roles
 └── examples/
-    └── real-report.md          # Real generated report (1,569 words, 24 sources)
+    ├── real-report.md          # Real generated report (1,569 words, 24 sources)
+    └── sample-report.md        # Example output
 ```
 
 ## Output
@@ -148,7 +134,7 @@ Reports saved to `.hybrid-research/{slug}/`:
 
 ## Limitations
 
-- All roles share one model (no per-role model override in `delegate_task`). To compare models, run separate research sessions.
+- All roles share one model (`delegation.model`) — no per-role model override in `delegate_task`.
 - Reddit requires `cookies.txt` for reliable access. Without cookies, falls back to `site:` search (limited results for niche topics).
 - GitHub API rate limits: 60 req/hour without token, 5000 with token.
 - Social platform APIs may require authentication or have rate limits.
