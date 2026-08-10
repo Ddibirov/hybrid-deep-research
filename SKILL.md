@@ -8,7 +8,7 @@ description: >-
   Use when user asks for "deep research", "research report", "investigate X",
   "what's happening with Y", "comprehensive analysis of Z", or any question
   requiring 5+ sources synthesized into a structured report with citations.
-version: 4.1.0
+version: 4.2.0
 author: Ddibirov
 license: MIT
 metadata:
@@ -177,7 +177,11 @@ Constraints: {language, regions, excluded sources, specific requirements}
 - **moderate**: 2 rounds, 3-5 subtopics, verification (1 retry max), no critic. ~10 min. Default for most questions.
 - **exhaustive**: 4 rounds, 5 subtopics, verification (3 retries), critic agent. ~30 min. For complex multi-faceted questions.
 
-Prompt Master auto-detects depth from question complexity. User can override in brief approval (if enabled) or by saying "quick research" / "deep dive".
+**Depth selection:** Default is `moderate`. Never auto-detect depth from question complexity. Overrides:
+- "quick research" / "quick scan" / "overview" → **surface**
+- "deep dive" / "in-depth" / "thorough" → **exhaustive**
+- Explicit request ("use surface mode") → that mode
+- Otherwise → stay with the default
 
 **If user mentions "what people say" / "reaction" / "opinion"** → emphasize social sources (Reddit, X, HN).
 **If user mentions "official" / "announcement" / "release"** → emphasize web + GitHub.

@@ -36,6 +36,11 @@ OUTPUT: Structured research brief with these fields:
    - "all time" — if user asks about fundamentals, comparisons
    - Specific dates if mentioned
 6. DEPTH: surface / moderate / exhaustive
+   - Default: moderate. Never auto-detect from question complexity.
+   - "quick research" / "quick scan" / "overview" → surface
+   - "deep dive" / "in-depth" / "thorough" → exhaustive
+   - Explicit request ("use surface mode") → that mode
+   - Otherwise → moderate
 7. SOURCES: Which platforms are relevant
    - web (always included)
    - reddit (if: "what people say", opinions, community reaction)

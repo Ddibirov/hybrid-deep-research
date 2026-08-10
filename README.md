@@ -1,13 +1,15 @@
 # Hybrid Deep Research
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-![Version](https://img.shields.io/badge/version-4.1.0-blue)
+![Version](https://img.shields.io/badge/version-4.2.0-blue)
 
-A prompt-only multi-round research pipeline for AI agents. **No code, no dependencies** — pure methodology, adaptable to any agent framework.
+A multi-round hybrid research pipeline for AI agents. Combines iterative deepening, parallel subagents, a director/investigator pattern, social signal collection (Reddit, X, Hacker News, YouTube, GitHub), pre-synthesis quality filtering, and deterministic URL verification.
 
-Given a research question, the pipeline silently produces a verified, cited report with real sources. The user gives a request — gets a result. Nothing in between.
+## What It Does
 
-1. **Generates a structured brief** — auto-detects category (product / comparison / howto / factcheck / general), sets depth mode (surface / moderate / exhaustive)
+Given a research question, the pipeline silently produces a cited research report. The user gives a request — gets a result. No intermediate output.
+
+1. **Generates a structured brief** — auto-detects category (product / comparison / howto / factcheck / general), applies default depth (override with "quick research" / "deep dive")
 2. **Decomposes** into subtopics × source matrix with per-query research goals (Director)
 3. **Dispatches parallel investigators** — Web, Social, GitHub — each with focused queries and compression (200 words max per finding)
 4. **Critic review** (exhaustive mode) — filters findings before synthesis: dead URLs, stale data, mislabeled credibility, internal contradictions removed
@@ -34,7 +36,7 @@ All roles share one model — the agent's default (`delegation.model`).
 | **moderate** | 2 | 3-5 | No | 1 retry | Default for most questions (~10 min) |
 | **exhaustive** | 4 | 5 | Yes | 3 retries | Complex multi-faceted questions (~30 min) |
 
-Prompt Master auto-detects depth from question complexity. User can override.
+Depth defaults to `moderate` — no guessing from question complexity. Override with "quick research" (surface) or "deep dive" (exhaustive).
 
 ## Key Features
 
@@ -98,7 +100,7 @@ the community thinks about performance vs ease of use.
 ```
 
 The agent will:
-1. Auto-detect category and depth
+1. Auto-detect category, apply default depth
 2. Run parallel investigators (silent — no intermediate output)
 3. Critic-filter findings (exhaustive mode)
 4. Synthesize with source authority weighting
