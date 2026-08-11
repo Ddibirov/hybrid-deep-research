@@ -1,0 +1,24 @@
+{
+  "agent_failures": [],
+  "budget": {
+    "fetch_calls": 0,
+    "fetch_limit": 16,
+    "investigator_calls": 0,
+    "investigator_limit": 8,
+    "max_rounds": 2,
+    "max_subtopics": 4,
+    "query_calls": 0,
+    "query_limit": 16,
+    "verification_retries": 0,
+    "verification_retry_limit": 1
+  },
+  "completed_subtopics": [],
+  "created_at": "2026-08-10T11:08:56Z",
+  "director_decisions": [],
+  "findings_files": [],
+  "mode": "moderate",
+  "phase": "brief",
+  "round": 0,
+  "updated_at": "2026-08-10T11:08:56Z",
+  "version": 1
+}

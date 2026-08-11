@@ -1,0 +1,338 @@
+[
+  {
+    "id": "current-01",
+    "category": "current_events",
+    "prompt": "What are the most consequential developments in the selected AI company during the last 7 days, and which are confirmed by primary sources?",
+    "time_sensitivity": "high",
+    "expected_source_classes": [
+      "official_announcement",
+      "filing",
+      "news"
+    ]
+  },
+  {
+    "id": "current-02",
+    "category": "current_events",
+    "prompt": "Investigate a breaking technology outage: establish timeline, affected services, root cause if known, and unresolved uncertainty.",
+    "time_sensitivity": "high",
+    "expected_source_classes": [
+      "status_page",
+      "official_announcement",
+      "news"
+    ]
+  },
+  {
+    "id": "current-03",
+    "category": "current_events",
+    "prompt": "Research a newly announced regulation and distinguish enacted text from political statements and commentary.",
+    "time_sensitivity": "high",
+    "expected_source_classes": [
+      "regulator",
+      "legislation",
+      "news"
+    ]
+  },
+  {
+    "id": "current-04",
+    "category": "current_events",
+    "prompt": "Assess a viral claim about a public company from the last 48 hours and determine what is confirmed, contradicted, or still unknown.",
+    "time_sensitivity": "high",
+    "expected_source_classes": [
+      "filing",
+      "official_announcement",
+      "news",
+      "social_post"
+    ]
+  },
+  {
+    "id": "software-01",
+    "category": "software",
+    "prompt": "Compare two current AI agent frameworks for a production Python project: releases, maintenance, architecture, ecosystem, and migration risk.",
+    "time_sensitivity": "high",
+    "expected_source_classes": [
+      "official_docs",
+      "repo",
+      "release"
+    ]
+  },
+  {
+    "id": "software-02",
+    "category": "software",
+    "prompt": "Establish the current stable version and breaking changes of a fast-moving open-source library, using canonical release evidence.",
+    "time_sensitivity": "high",
+    "expected_source_classes": [
+      "release",
+      "official_docs",
+      "repo"
+    ]
+  },
+  {
+    "id": "software-03",
+    "category": "software",
+    "prompt": "Investigate whether an open-source repository is actively maintained and suitable for adoption; separate stars from real maintenance signals.",
+    "time_sensitivity": "medium",
+    "expected_source_classes": [
+      "repo",
+      "release",
+      "issues"
+    ]
+  },
+  {
+    "id": "software-04",
+    "category": "software",
+    "prompt": "Research a reported software vulnerability: affected versions, exploitability, patch status, and authoritative mitigation.",
+    "time_sensitivity": "high",
+    "expected_source_classes": [
+      "advisory",
+      "cve",
+      "repo"
+    ]
+  },
+  {
+    "id": "software-05",
+    "category": "software",
+    "prompt": "Compare direct API usage against a popular abstraction framework for the same LLM workflow, including complexity and operational trade-offs.",
+    "time_sensitivity": "medium",
+    "expected_source_classes": [
+      "official_docs",
+      "repo",
+      "analysis"
+    ]
+  },
+  {
+    "id": "factcheck-01",
+    "category": "factcheck",
+    "prompt": "Fact-check a widely shared numerical claim about migration, identifying the original dataset and whether the comparison is valid.",
+    "time_sensitivity": "medium",
+    "expected_source_classes": [
+      "dataset",
+      "official_statistics",
+      "analysis"
+    ]
+  },
+  {
+    "id": "factcheck-02",
+    "category": "factcheck",
+    "prompt": "Fact-check a health claim circulating on social media using primary research and high-quality reviews.",
+    "time_sensitivity": "medium",
+    "expected_source_classes": [
+      "paper",
+      "systematic_review",
+      "health_authority"
+    ]
+  },
+  {
+    "id": "factcheck-03",
+    "category": "factcheck",
+    "prompt": "Verify whether a quoted statement was actually made by the attributed organization and whether context changes its meaning.",
+    "time_sensitivity": "medium",
+    "expected_source_classes": [
+      "primary_statement",
+      "archive",
+      "news"
+    ]
+  },
+  {
+    "id": "factcheck-04",
+    "category": "factcheck",
+    "prompt": "Investigate a claim that a product feature has been removed; distinguish rollout differences, documentation changes, and anecdotes.",
+    "time_sensitivity": "high",
+    "expected_source_classes": [
+      "official_docs",
+      "release",
+      "support",
+      "social_post"
+    ]
+  },
+  {
+    "id": "comparison-01",
+    "category": "comparison",
+    "prompt": "Compare two cloud services for a small always-on automation workload: current pricing, free tiers, limits, reliability, and lock-in.",
+    "time_sensitivity": "high",
+    "expected_source_classes": [
+      "pricing",
+      "official_docs",
+      "status_page"
+    ]
+  },
+  {
+    "id": "comparison-02",
+    "category": "comparison",
+    "prompt": "Compare two photo-editing applications for professional e-commerce production, focusing on tethering, batch workflow, color management, and automation.",
+    "time_sensitivity": "medium",
+    "expected_source_classes": [
+      "official_docs",
+      "reviews",
+      "user_reports"
+    ]
+  },
+  {
+    "id": "comparison-03",
+    "category": "comparison",
+    "prompt": "Compare two database technologies for a small self-hosted application: operational complexity, backups, concurrency, and migration path.",
+    "time_sensitivity": "medium",
+    "expected_source_classes": [
+      "official_docs",
+      "repo",
+      "benchmarks"
+    ]
+  },
+  {
+    "id": "science-01",
+    "category": "science",
+    "prompt": "Assess the current evidence for a disputed scientific intervention, separating mechanistic plausibility from clinical outcomes.",
+    "time_sensitivity": "medium",
+    "expected_source_classes": [
+      "paper",
+      "systematic_review",
+      "guideline"
+    ]
+  },
+  {
+    "id": "science-02",
+    "category": "science",
+    "prompt": "Research whether a recent paper materially changes the consensus in its field, including replication and expert criticism.",
+    "time_sensitivity": "high",
+    "expected_source_classes": [
+      "paper",
+      "dataset",
+      "review"
+    ]
+  },
+  {
+    "id": "science-03",
+    "category": "science",
+    "prompt": "Compare two measurement methods in a technical field and explain accuracy, bias, calibration, and practical limitations.",
+    "time_sensitivity": "low",
+    "expected_source_classes": [
+      "standard",
+      "paper",
+      "technical_docs"
+    ]
+  },
+  {
+    "id": "legal-01",
+    "category": "legal",
+    "prompt": "Determine the current legal status of a specific administrative procedure in Spain using legislation and official guidance.",
+    "time_sensitivity": "high",
+    "expected_source_classes": [
+      "legislation",
+      "official_guidance",
+      "court"
+    ]
+  },
+  {
+    "id": "legal-02",
+    "category": "legal",
+    "prompt": "Investigate the procedural options after an allegedly erroneous administrative fine, distinguishing statutory deadlines from practical advice.",
+    "time_sensitivity": "high",
+    "expected_source_classes": [
+      "legislation",
+      "official_guidance",
+      "court"
+    ]
+  },
+  {
+    "id": "legal-03",
+    "category": "legal",
+    "prompt": "Research a company insolvency proceeding and separate registry facts, court filings, company statements, and press interpretation.",
+    "time_sensitivity": "high",
+    "expected_source_classes": [
+      "court",
+      "registry",
+      "filing",
+      "news"
+    ]
+  },
+  {
+    "id": "product-01",
+    "category": "product",
+    "prompt": "Recommend a current French-door refrigerator under a fixed width and budget, verifying dimensions, availability, warranty, and major trade-offs.",
+    "time_sensitivity": "high",
+    "expected_source_classes": [
+      "manufacturer",
+      "retailer",
+      "manual",
+      "reviews"
+    ]
+  },
+  {
+    "id": "product-02",
+    "category": "product",
+    "prompt": "Compare two current appliance models with similar names and establish exact differences from manuals/specifications rather than retailer copy.",
+    "time_sensitivity": "high",
+    "expected_source_classes": [
+      "manufacturer",
+      "manual",
+      "retailer"
+    ]
+  },
+  {
+    "id": "product-03",
+    "category": "product",
+    "prompt": "Find current alternatives to a software subscription, comparing pricing, platform support, export compatibility, and privacy.",
+    "time_sensitivity": "high",
+    "expected_source_classes": [
+      "pricing",
+      "official_docs",
+      "privacy_policy"
+    ]
+  },
+  {
+    "id": "general-01",
+    "category": "general",
+    "prompt": "Research the financial health of a company using the latest available filings, debt/liquidity indicators, and material subsequent events.",
+    "time_sensitivity": "high",
+    "expected_source_classes": [
+      "filing",
+      "registry",
+      "news"
+    ]
+  },
+  {
+    "id": "general-02",
+    "category": "general",
+    "prompt": "Investigate how a technical workflow is actually implemented in industry, combining standards, vendor documentation, and practitioner evidence.",
+    "time_sensitivity": "medium",
+    "expected_source_classes": [
+      "standard",
+      "official_docs",
+      "analysis"
+    ]
+  },
+  {
+    "id": "general-03",
+    "category": "general",
+    "prompt": "Research the historical evolution of a technology claim and identify when the current consensus emerged.",
+    "time_sensitivity": "low",
+    "expected_source_classes": [
+      "archive",
+      "paper",
+      "reference"
+    ]
+  },
+  {
+    "id": "social-01",
+    "category": "social_research",
+    "prompt": "Determine what developers are complaining about in the latest major release of a tool, separating recurring issues from viral anecdotes.",
+    "time_sensitivity": "high",
+    "expected_source_classes": [
+      "issues",
+      "repo",
+      "social_post",
+      "official_docs"
+    ]
+  },
+  {
+    "id": "social-02",
+    "category": "social_research",
+    "prompt": "Assess community reaction to a newly launched AI product while separately verifying factual claims about capabilities and pricing.",
+    "time_sensitivity": "high",
+    "expected_source_classes": [
+      "official_docs",
+      "pricing",
+      "social_post",
+      "news"
+    ]
+  }
+]

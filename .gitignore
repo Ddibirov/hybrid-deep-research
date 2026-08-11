@@ -1,6 +1,10 @@
 # Research output
 .hybrid-research/
 
+# Python runtime artifacts
+__pycache__/
+.pytest_cache/
+
 # Internal analysis files (not for publication)
 references/improvement-roadmap.md
 references/improvement-roadmap-v2.md
@@ -9,3 +13,4 @@ references/test-run-2026-06-18.md
 references/repo-analysis-dzhng.md
 references/repo-analysis-gpt-researcher.md
 references/repo-analysis-langchain.md
+references/fork-v6-runtime.md

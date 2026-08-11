@@ -8,7 +8,7 @@ description: >-
   Use when user asks for "deep research", "research report", "investigate X",
   "what's happening with Y", "comprehensive analysis of Z", or any question
   requiring 5+ sources synthesized into a structured report with citations.
-version: 4.2.0
+version: 4.5.0
 author: Ddibirov
 license: MIT
 metadata:
@@ -47,6 +47,14 @@ Multi-round research pipeline. All roles run on one model (set via `delegation.m
 - If the research fails (search unavailable, all investigators crash), send a brief error message — not pipeline diagnostics
 
 The user sees: request → result. That's it.
+
+## Runtime scripts (v6, from the reliability fork)
+
+`scripts/` contains a deterministic runtime layer copied from the carlosmartinezfyd fork (v6.0.0, 2026-08-10): source registry, claim ledger, research state/budgets, HTTP checker, report validator, finalizer (74 unit tests in `tests/`). These enforce invariants that LLM prompts cannot be trusted to enforce (URL fabrication, citation integrity, status self-certification).
+
+**Decision (Сэр, 2026-08-10): quality beats the "no code" marketing fit. Runtime layer is accepted.** Integrate registry+ledger+finalizer as the core: the orchestrator (main session) maintains the journals after each round — subagents return findings and never mutate shared files. Full analysis, per-script inventory, and adopt decision: `references/fork-v6-runtime.md`.
+Exact marker/citation format that `verify_report.py` demands (hard-won, costly to rediscover): `references/verify-report-citation-format.md`.
+Improvement candidates from the 2026-08 dogfood run (benchmarks, adaptive compute, verification, social): `references/improvement-candidates-2026-08.md`. Adopted into v4.4.0 (2026-08-11): abstention rule (Phase 6), falsification round (Phase 5.5), adaptive stop (Director trigger 5). Do not re-propose these as new ideas.
 
 ## Architecture
 
@@ -98,11 +106,17 @@ USER INPUT
     ║         │           │                          ║
     ║    CONTINUE    SYNTHESIZE                       ║
     ║         │           │                          ║
-    ║  ┌──────┘           │                          ║
-    ║  │ 6. SYNTHESIST    │                          ║
-    ║  │  (evolving mode) │                          ║
-    ║  │  Update draft    │                          ║
-    ║  └───────┬──────────┘                          ║
+    ║         │           ↓                          ║
+    ║         │   ┌──────────────────────┐           ║
+    ║         │   │ 5.5 FALSIFICATION    │           ║
+    ║         │   │ (try to break key    │           ║
+    ║         │   │  claims, all modes)  │           ║
+    ║         │   └──────────┬───────────┘           ║
+    ║  ┌──────┘              │                       ║
+    ║  │ 6. SYNTHESIST       ↓                       ║
+    ║  │  (evolving mode)    │                       ║
+    ║  │  Update draft       │                       ║
+    ║  └───────┬─────────────┘                       ║
     ║          ↓                                     ║
     ║       (loop)                                   ║
     ╚══════════╧═════════════════════════════════════╝
@@ -129,6 +143,28 @@ USER INPUT
 ## Config
 
 No config file required. The pipeline runs entirely on `delegation.model` from the agent config.
+
+## Deterministic Runtime (scripts/)
+
+LLMs make semantic decisions; the runtime scripts enforce invariants. Available in `scripts/` (stdlib-only Python 3.10+):
+
+- `source_registry.py` — immutable source registry: every URL used in the report must be registered here first. After `freeze`, no mutations allowed. This makes URL fabrication impossible.
+- `claim_ledger.py` — immutable claim ledger: each report-worthy statement is recorded with its evidence source IDs, verification status, and confidence.
+- `check_sources.py` — deterministic HTTP accessibility check: 2xx/3xx `ok`, 401/403 `restricted` (not dead!), 404/410 `dead`, 429 `rate_limited`, 5xx `transient_error`, network `network_error`.
+- `verify_report.py` — structural validation: every factual block must cite `[S#]` from the registry; rejects unknown source IDs and uncited factual blocks.
+- `finalize_report.py` — writes `status: validated` only after semantic + structural checks pass. A draft cannot self-certify.
+- `research_state.py` — global budgets and adaptive stopping (optional).
+
+Run directory layout:
+
+```bash
+RUN=".hybrid-research/{slug}"
+mkdir -p "$RUN/raw_findings"
+python3 scripts/source_registry.py init "$RUN/source_registry.json"
+python3 scripts/claim_ledger.py init "$RUN/claims.jsonl"
+```
+
+If Python is unavailable, fall back to prompt-level enforcement (manual URL check in Phase 7) and mark the report `unverified_gaps`.
 
 ## Procedure
 
@@ -272,11 +308,26 @@ Detailed role prompts in `references/roles.md`.
   - Follow-up questions (if applicable)
   Drop everything else. No raw page content. No navigation text. No boilerplate. If a finding's evidence exceeds 200 words, compress to key data points only. This prevents context overflow in Synthesist.
 - Web queries: use `web_search` tool
-- Social queries: Reddit requires authenticated curl with cookies.txt (Reddit blocks unauthenticated JSON/RSS with 403 Cloudflare). Use `curl --cookie cookies.txt` for Reddit JSON API (cookies.txt exported from Chrome — see your agent framework's cookie export method). Fall back to `web_search` with `site:` operator if cookies unavailable. See `references/roles.md` for details.
+- Social queries: Reddit requires authenticated curl with cookies.txt (Reddit blocks unauthenticated JSON/RSS with 403 Cloudflare). Use `curl --cookie cookies.txt` for Reddit JSON API (cookies.txt exported from Chrome — see your agent framework's cookie export method). If cookies are unavailable, mark Reddit as `[LACK_OF_DATA]` — do NOT fall back to `site:` search (returns irrelevant results for niche topics, lets the LLM fake coverage). See `references/roles.md` for details.
 - GitHub queries: use GitHub API via `curl`
 - All investigators must cite URLs and dates
+- **Register sources after each round:** The orchestrator (parent agent) registers every unique URL from investigator findings into the source registry. Never skip this — the registry is the single source of truth for the report's citations:
+  ```bash
+  python3 scripts/source_registry.py add "$RUN/source_registry.json" \
+    --title "..." --url "..." --source-type "web|reddit|hn|github|youtube" \
+    --date "YYYY-MM-DD|unknown" --finding-file "raw_findings/{subtopic}.md"
+  ```
+  The command assigns a stable `S#` and deduplicates canonical URLs.
+- **Register claims:** Convert report-worthy statements into the claim ledger with evidence links:
+  ```bash
+  python3 scripts/claim_ledger.py add "$RUN/claims.jsonl" \
+    --claim "..." --importance high --confidence medium \
+    --verification supported \
+    --evidence-json '{"source_id":"S1","support":"direct","excerpt":"..."}'
+  ```
+  A factual claim with no evidence source stays `unverified`; do not write it as established fact later.
 - **Rate limit handling:** If any HTTP request returns 429 or 5xx, immediately mark that query as `[SOURCE_ERROR: RATE_LIMIT]` or `[SOURCE_ERROR: SERVER_DOWN]` and move on. Do NOT retry. Do NOT treat a failed request as "no data found."
-- **Fallback for blocked APIs:** If GitHub API returns 401/403/429, fall back to `web_search(query="{query} site:github.com")`. If Reddit/search backend returns 429, fall back to `web_search(query="{query} site:reddit.com")`. Mark the source as `[FALLBACK: web_search]` in findings.
+- **Fallback for blocked APIs:** If GitHub API returns 401/403/429, fall back to `web_search(query="{query} site:github.com")`. Mark the source as `[FALLBACK: web_search]` in findings. Reddit has NO fallback: if the authenticated path fails, mark `[LACK_OF_DATA]` — never fake coverage with `site:reddit.com` search.
 - **Agent failure recovery:** If a subagent crashes, times out, or returns no usable output:
   1. Retry once with the same goal
   2. If retry fails → mark subtopic as `[AGENT_FAILED: {subtopic}]` in Gap Check
@@ -319,6 +370,7 @@ For each finding:
 - Credibility tag justified? → If "official_docs" but URL is a blog: [CRITIC_WARN: mislabeled credibility]
 - Rational contradicts evidence? → If yes: [CRITIC_FAIL: internal contradiction]
 - Confidence tag reasonable? → If "high" but single source opinion: [CRITIC_WARN: inflated confidence]
+- Citation supports claim? → Read the cited page/snippet. If the URL is reachable but its content does NOT actually support the claim it backs: [CRITIC_FAIL: citation-content mismatch] — the claim is dropped or re-anchored to a source that really supports it. This is different from a dead URL: the page exists, the link just doesn't prove the sentence. (exhaustive mode only)
 ```
 
 **Actions:**
@@ -352,14 +404,33 @@ Refined queries: [only if CONTINUE]
 2. **No new data for 2 consecutive rounds** → SYNTHESIZE (further rounds won't help)
 3. **All key aspects covered with 2+ sources** → SYNTHESIZE if ≥2 rounds completed
 4. **Persistent rate limits** blocking critical subtopics → SYNTHESIZE, note in Uncertainties
+5. **Adaptive stop (when `research_state.py` is available)** → SYNTHESIZE early if the last N findings converge: ≥3 consecutive findings for the same key aspect agree on substance (same conclusion, overlapping sources), even if rounds remain. The runtime script tracks convergence; Director reads its state. This is the formalized version of trigger 2 — instead of waiting for "no new data," stop as soon as evidence is consistent.
 
 **CONTINUE triggers (only if no SYNTHESIZE trigger matched):**
 - Critical subtopic has <2 sources
 - Key contradiction unresolved
 - Social signals suggest major development not in web findings
 - Round 1-2 with clear gaps remaining (minimum exploration not done)
+- Findings diverge: 2+ findings for a key aspect disagree on substance → keep researching (adaptive stop must NOT fire on disagreement)
 
-**Priority rule:** SYNTHESIZE triggers 1-2 override Smart stop. Never loop past max_rounds.
+**Priority rule:** SYNTHESIZE triggers 1-2 override Smart stop. Never loop past max_rounds. Adaptive stop (trigger 5) fires only on convergence, never on divergence — disagreeing evidence is a CONTINUE signal, not a stop signal.
+
+### Phase 5.5: Falsification Round (all modes)
+
+Before final synthesis, run ONE targeted round on the report's key claims. Purpose: try to break the conclusion, not confirm it.
+
+**Procedure:**
+1. Take the top 3-5 key claims from the evolving report (highest importance).
+2. For each, dispatch ONE focused investigator with the explicit goal: *"Find evidence that contradicts or weakens this claim. If none exists, say so explicitly. Do NOT search for supporting evidence."*
+3. Investigator registers any contradicting sources into the source registry (same `source_registry.py add` flow). A counter-source that is not a real URL does not count — the registry enforces this.
+4. Director review of falsification results:
+   - **No contradicting evidence found** → proceed to synthesis unchanged. Note in the report: "Falsification attempted: no counter-evidence found."
+   - **Weak contradiction** (lower authority weight than the supporting sources) → proceed, add the counter-claim to "Contradictions & Uncertainties" with both sides cited.
+   - **Strong contradiction** (comparable/higher authority, directly conflicts) → do NOT finalize as-is. Either resolve in a follow-up round (CONTINUE) or present both sides prominently with the conflict called out. Never silently drop a strong counter-claim.
+
+**Cost control:** Falsification round is 1 round max, 3-5 investigators max, runs only on final synthesis (not per-round evolving mode). If it hits rate limits or agent failures, note `[FALSIFICATION_SKIPPED: reason]` in Uncertainties and proceed.
+
+**Why:** This is the cheapest reliable defense against confident-but-wrong reports. Verifying URLs (Phase 7) checks that sources exist; falsification checks that the *conclusion* survives contact with counter-evidence.
 
 ### Phase 6: Synthesis
 
@@ -385,6 +456,21 @@ Synthesist operates in two modes:
 Synthesist in EVOLVING mode MUST preserve this structure across rounds. Only add content, don't restructure. The FINAL mode Synthesist will convert this to the final report format in the next section.
 
 **Final synthesis (polish mode):** When Director says SYNTHESIZE, Synthesist takes the `evolving_report` + any remaining findings → produces the final polished report with full structure, citations, category format.
+
+**Synthesist works only from frozen evidence (runtime mode):** When the source registry and claim ledger exist, the Synthesist receives ONLY: the brief, vetted findings, the frozen `source_registry.json`, the frozen `claims.jsonl`, and known gaps/contradictions. Hard rules:
+- Never invent or repair a URL. Raw URLs appear only in the Sources section.
+- Never create an `S#` absent from the frozen registry.
+- Every factual block (prose, list items, numbered steps, blockquote, table data rows) cites `[S#]` that actually supports the referenced claim.
+- Leave `status: pending` in draft frontmatter — the finalizer decides the final status.
+- If the registry/ledger are absent (no Python run), fall back to the standard citation rules below and mark the report for manual verification.
+
+**Abstention rule (all modes):** If a claim in the brief has NO supporting evidence in the findings/registry — do NOT write it as fact. Write it explicitly as unverified: "Не подтверждено: {claim}" or "Unverified: {claim}" in the Contradictions & Uncertainties section. A report that states "no data found" honestly beats a report that invents a citation. Never fill an evidence gap with a plausible-sounding source — that is fabrication, and `verify_report.py` rejects uncited blocks anyway.
+
+**Confidence calibration (all modes):** For each Key Finding paragraph, mark the confidence of the central claim inline: `[confidence: high]`, `[confidence: medium]`, or `[confidence: low]` at the end of the paragraph (inside the claim marker or as plain text). Rules:
+- `high` — 2+ independent sources agree, or 1 official/primary source
+- `medium` — 1-2 sources, some conflicting, or single-source claims from credible outlets
+- `low` — single source, speculation, or contradictory evidence; MUST also appear in Contradictions & Uncertainties
+- In the Executive Summary, confidence comes from the strongest claim: if any key finding is `low`, say so ("часть выводов основана на единственном источнике").
 
 **Short report expansion:** If the final polished report is under 400 words, Synthesist must expand it with a follow-up pass:
 - Send the short report back to Synthesist with: "This report is too brief ({word_count} words). Expand it significantly: add detailed paragraphs for each section (not just bullet points), include specific data and comparisons from the evidence, explain context and significance, use ## headings and ### subheadings. Target at least 800 words."
@@ -458,12 +544,48 @@ Default template (report format):
 
 Verifier checks the report against findings:
 
-**URL accessibility check (deterministic):** Before LLM-based verification, curl every URL from the Sources section:
+**Deterministic checks (runtime scripts) — preferred when Python is available:**
+
+1. **Freeze provenance** (after final synthesis, before verification):
+   ```bash
+   python3 scripts/source_registry.py freeze "$RUN/source_registry.json"
+   python3 scripts/claim_ledger.py freeze "$RUN/claims.jsonl"
+   ```
+   After freeze, mutations must fail. Do not edit these files manually.
+
+2. **Structural validation** — every factual block (prose, list items, numbered steps, blockquote, table data rows) must cite `[S#]` present in the frozen registry:
+   ```bash
+   python3 scripts/verify_report.py "$RUN/report.md" \
+     --registry "$RUN/source_registry.json" \
+     --claims "$RUN/claims.jsonl"
+   ```
+
+3. **HTTP accessibility check** — deterministic classification of every registered URL:
+   ```bash
+   python3 scripts/check_sources.py "$RUN/source_registry.json" \
+     --output "$RUN/source_access.json"
+   ```
+   Classification: 2xx/3xx `ok`, 401/403 `restricted` (NOT dead — Cloudflare 403 means the page exists), 404/410 `dead`, 429 `rate_limited`, 5xx `transient_error`, network errors `network_error`.
+
+4. **Deterministic finalization** — writes `status: validated` only when all checks pass; a draft cannot self-certify:
+   ```bash
+   python3 scripts/finalize_report.py "$RUN/report.md" \
+     --manifest "$RUN/report_manifest.json" \
+     --registry "$RUN/source_registry.json" \
+     --claims "$RUN/claims.jsonl" \
+     --access "$RUN/source_access.json" \
+     --semantic-verification passed
+   ```
+
+**Explicit failure signals (do not silence them):**
+- `source_registry.py add` on a missing `--finding-file` prints a WARNING and stores empty (no silent crash). If `RuntimeError: source registry is frozen` appears — you froze before registering; re-init the registry.
+- `claim_ledger.py add` requires `--claim-class`; if finalize says `claim ledger must be frozen` — you added claims after freezing; re-init, add, freeze.
+- `verify_report.py` FAIL lines list exactly which blocks lack citations/claim markers. Fix them (or run `annotate_report.py --apply`), don't re-freeze over them.
+- `annotate_report.py` is the claim-marker helper: `python3 scripts/annotate_report.py "$RUN/report.md" --claims "$RUN/claims.jsonl" --apply` auto-inserts `<!-- claims: C# -->` markers on any block whose cited `[S#]` sources match a claim's evidence. Dry-run by default; pass `--apply` to write.
+
+**Fallback (no Python):** curl every URL from the Sources section:
 - `curl -s -o /dev/null -w "%{http_code}" {url}` (timeout 10s per URL)
-- 200 → OK
-- 404/403/5xx → mark as `[URL_DEAD: {status_code}]` in the report's Sources section
-- Redirect (301/302) → follow redirect, note final URL
-- Timeout → mark as `[URL_TIMEOUT]`
+- 200 → OK; 401/403 → `[URL_RESTRICTED]` (anti-bot, not dead); 404/410 → `[URL_DEAD]`; 429 → `[URL_RATE_LIMITED]`; timeout → `[URL_TIMEOUT]`
 - Dead URLs do NOT auto-fail verification, but the report must note them
 
 ```
@@ -507,6 +629,12 @@ Track research state for crash recovery. Save to `.hybrid-research/{slug}/state.
 
 **State is optional** for simple runs (1 round, 3 subtopics — only the report needs saving). **Mandatory** for multi-round scenarios or crash-recovery.
 
+**Memory across runs (optional, reuse):** Before starting a new run on a topic you have researched before, check `~/.hybrid-research/*/` for a prior run with the same/similar slug (grep the topic line in old `state.json` or report frontmatter). If found:
+1. Load the old `source_registry.json` — reuse still-valid sources instead of re-fetching (skip re-search for already-covered subtopics).
+2. Pass the old report's "Contradictions & Uncertainties" into the new brief as known gaps: "resolve or re-verify: {list}".
+3. Save the new run's registry to the same `~/.hybrid-research/` area so the next run can reuse it too.
+This is a light-weight version of agent memory: no vector store, just file-level reuse. It prevents re-researching settled facts and carries open questions forward.
+
 **Recovery procedure:** If resuming after a crash:
 1. Read `state.json` — check `phase` and `round`
 2. Load all `findings_files` from `raw_findings/`
@@ -536,7 +664,7 @@ Raw findings saved to `.hybrid-research/{slug}/raw_findings/{subtopic}.md`.
 
 - **Don't skip Prompt Master.** Director gets confused by vague user input. Always brief first.
 - **Max 3 investigators per batch.** If Director created 5 subtopics, run in batches of 3, then 2.
-- **Handle 429 rate limits explicitly.** Return `[SOURCE_ERROR: RATE_LIMIT]` and stop. Never retry in the same round. Use fallback to `web_search` with `site:` operator.
+- **Handle 429 rate limits explicitly.** Return `[SOURCE_ERROR: RATE_LIMIT]` and stop. Never retry in the same round. Reddit has no fallback — mark `[LACK_OF_DATA]` rather than faking coverage.
 - **Don't trust social engagement alone.** Viral ≠ accurate. Cross-validate with web sources.
 - **Hard limit: 4 rounds (exhaustive mode).** Surface=1, moderate=2, exhaustive=4. Director respects depth mode. If not enough after max rounds, report what you have with gaps noted.
 - **Verification is mandatory.** 3 retries max. After 3 FAILs → publish with `status: unverified_gaps`.
@@ -545,10 +673,14 @@ Raw findings saved to `.hybrid-research/{slug}/raw_findings/{subtopic}.md`.
 - **Agent failures happen.** Subagents can crash, timeout, or return garbage. Always retry once, then log `[AGENT_FAILED]` and let Director decide.
 - **Web extract limit.** Investigators MUST NOT call web_extract more than 3 times per round. After 3 extractions — work with search snippets only. Excessive web_extract calls cause subagent timeouts (600s limit). In the test run, one investigator timed out after 13 API calls — the retry with 0 web_extract calls completed in 61 seconds.
 - **web_extract is the #1 timeout cause.** Investigators that call web_extract on every search result will timeout at 600s. Limit to 2-3 web_extract calls per investigator. If an investigator times out, retry with a LIGHTWEIGHT variant: "DO NOT use web_extract. Only use web_search and curl. Summarize from search result snippets only." This completes in ~60s vs 600s timeout.
-- **Reddit blocks unauthenticated access.** `web_search("{query} site:reddit.com")` returns irrelevant results for niche topics. Use cookies.txt with curl for Reddit JSON API. If cookies are unavailable, mark Reddit as `[LACK_OF_DATA]` — do not rely on site: search for Reddit.
-- **Synthesis subagents fabricate URLs.** When generating the final report, the Synthesist may produce plausible-but-wrong GitHub URLs (wrong org name, wrong repo name). The Verifier MUST cross-check every URL against the actual findings. Common fabrications: `github.com/Tongyi-Research/DeepResearch` (correct: `Alibaba-NLP/DeepResearch`), `github.com/pewdiepie/odysseus` (correct: `pewdiepie-archdaemon/odysseus`).
+- **Reddit blocks unauthenticated access.** Use cookies.txt with curl for Reddit JSON API. If cookies are unavailable, mark Reddit as `[LACK_OF_DATA]` — do NOT fall back to `site:` search (returns irrelevant results for niche topics and lets the LLM fake coverage).
+- **Synthesis subagents fabricate URLs.** When generating the final report, the Synthesist may produce plausible-but-wrong GitHub URLs (wrong org name, wrong repo name). Fix: run with the source registry (`scripts/source_registry.py`) — every URL must be registered before synthesis, and `verify_report.py` rejects any `[S#]` not in the frozen registry. Common fabrications: `github.com/Tongyi-Research/DeepResearch` (correct: `Alibaba-NLP/DeepResearch`), `github.com/pewdiepie/odysseus` (correct: `pewdiepie-archdaemon/odysseus`).
 - **Synthesist can fail.** If it does, don't discard findings — compile them into a fallback report with `status: unverified_gaps`. Raw data is better than no data.
 - **Short reports happen.** If the final report is under 400 words, auto-expand with a follow-up prompt — don't accept a thin report.
+- **verify_report.py is ruthless about marker placement.** Claim markers `<!-- claims: C# -->` must be at the END of a block's lines — never on separate lines (a marker-only line is treated as a block of its own and fails). Every factual prose paragraph needs BOTH `[S#]` citations AND a claim marker; a prose paragraph without `[S#]` fails as "uncited factual prose" even if it has a marker. List items get markers per-item; a long list item the formatting pass missed breaks validation. The block's `[S#]` sources must overlap the cited claim's evidence sources — `verify_report` cross-checks. Sources header must be exactly `## Sources` (English), entries `[S#] Title — URL` in registry order. Full rules: `references/verify-report-citation-format.md`.
+- **Add registry/claims via terminal, not execute_code.** `source_registry.py add` and `claim_ledger.py add` fail SILENTLY inside execute_code (exceptions swallowed) — registry stays empty and you only notice at freeze. Run adds through terminal, verify output; `--finding-file` paths must exist or the add fails. `--source-id` (not `--evidence-json`) is the reliable way to link claim evidence.
+- **Delegated director can die of context overflow.** If the nested director crashes, recover its subagents' completed work from the run log/transcripts instead of re-delegating — often 2/3 investigators already returned. Finish remaining topics manually (parallel web_search), then run the normal registry/verify/finalize chain.
+- **Re-freeze after recreating claims.** If the validation chain was interrupted and you re-create/re-add `claims.jsonl` (or the registry) after an earlier `freeze`, you MUST `freeze` again before `finalize_report.py` — finalize checks frozen state, and a recreated unfrozen ledger fails it even when `verify_report.py` passed. Safe resume order after interruption: freeze registry → freeze claims → verify_report → check_sources → finalize. **The claim ledger has NO update command** — widening a claim's evidence after freeze means re-init (wipes all claims) → re-add EVERY claim → re-freeze. Get `--source-id` lists complete the first time: each claim's evidence must cover all `[S#]`s its blocks cite, or you'll pay a full claims rewrite per mismatch. Details + report_model.py debug recipe: `references/verify-report-citation-format.md`.
 
 ## Edge Cases
 

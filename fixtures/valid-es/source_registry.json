@@ -1,0 +1,27 @@
+{
+  "created_at": "2026-08-10T11:08:56Z",
+  "frozen": true,
+  "frozen_at": "2026-08-10T11:08:56Z",
+  "registry_sha256": "7754f9085b691e97bf9b6e87b363f1beb0b605d378af1f4b31e761f8ec426782",
+  "sources": [
+    {
+      "authority_rationale": "Canonical release metadata",
+      "canonical_url": "https://example.com/source",
+      "claim_classes": [
+        "release"
+      ],
+      "content_sha256": "a2f5fc23fb61021bece7098e703d162aa83aa97a1d2ad7578fe10f31f0aae132",
+      "date": "2026-08-10",
+      "finding_sha256": "6fbdafc589b881dcd023ee2ae9e13aad114dad2d6c512577c930857f462d37d9",
+      "id": "S1",
+      "provenance": {
+        "finding_file": "raw_findings/release.md"
+      },
+      "retrieved_at": "2026-08-10T11:08:56Z",
+      "source_type": "official_docs",
+      "title": "Official release",
+      "url": "https://example.com/source"
+    }
+  ],
+  "version": 1
+}

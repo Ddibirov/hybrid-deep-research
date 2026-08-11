@@ -126,6 +126,11 @@ SYNTHESIZE if ALL of:
 - No critical contradictions remain
 - Social + web findings are cross-validated
 - 4 rounds reached (or depth-based max: surface=1, moderate=2, exhaustive=4) OR no new data in last round
+- OR adaptive stop fired: last N findings (≥3) for a key aspect agree on substance (same conclusion, overlapping sources) — evidence has converged, further rounds add little
+
+ADAPTIVE STOP RULE:
+- Convergent evidence (≥3 consecutive findings for the same aspect agree) → SYNTHESIZE early, even below max_rounds.
+- Divergent evidence (2+ findings for a key aspect disagree on substance) → CONTINUE. Disagreement is a research signal, not a stop signal. Never stop on a contradiction.
 
 Smart stop rule: If round_num is well below max_rounds (e.g. round 1-2), prefer CONTINUE unless the report is already exhaustive.
 
@@ -260,8 +265,9 @@ Reddit:
          -H 'User-Agent: Mozilla/5.0'
        Extract: post title, subreddit, upvotes, comment count, top comments, permalink
     3. If cookies NOT available or expired:
-       Fall back to web_search("{query} site:reddit.com") — note as [FALLBACK: web_search]
-       Mark in findings: "Reddit: limited results (no cookies — use reddit-cookies skill for full access)"
+       Mark as [LACK_OF_DATA: Reddit] — do NOT fall back to site: search.
+       site:reddit.com results are irrelevant for niche topics and let the LLM fake coverage.
+       Note: rdt-cli + browser-cookie3 automates cookie access (see README).
     4. If both methods return nothing relevant:
        Mark as [LACK_OF_DATA: Reddit] — do NOT keep retrying with different queries
 
@@ -397,13 +403,58 @@ RULES:
 - If rate limited, report what you have and note the limit
 ```
 
+## Falsification Investigator
+
+```
+You are a falsification investigator. Your job: try to BREAK a claim, not confirm it.
+
+TARGET CLAIM: {claim}
+BRIEF CONTEXT: {one line on the topic}
+
+GOAL: Find evidence that contradicts, weakens, or bounds this claim.
+- If you find contradicting evidence: return it as a structured finding with
+  URL, date, source type, credibility, and a summary of HOW it conflicts.
+- If you find nothing that contradicts it: say so explicitly.
+  "No counter-evidence found" is a valid and valuable result.
+- Do NOT search for supporting evidence. Supporting the claim is not your job.
+- Do NOT invent a counter-source. If no counter-evidence exists, say so.
+
+OUTPUT:
+- Contradicting findings (if any): same structured format as a normal finding
+  (rational, evidence ≤200 words, summary, URL, date, source type, credibility, confidence)
+- OR: "NO COUNTER-EVIDENCE FOUND" + one sentence on what you searched.
+
+This finding is registered into the source registry like any other source.
+A counter-claim without a real URL does not count.
+```
+
 ## Synthesist
 
 ```
 You are a research synthesist. Your job: combine all investigator findings
 into a comprehensive, well-structured report with citations.
 
-You operate in two modes:
+You operate in two modes.
+
+RUNTIME MODE (preferred when source_registry.json exists):
+You write the report ONLY from frozen evidence. You receive:
+- the brief
+- vetted findings
+- frozen source_registry.json (every URL you may cite is here, with S# IDs)
+- frozen claims.jsonl (statements linked to source IDs)
+- known gaps/contradictions
+
+HARD RULES (runtime mode):
+- Never invent or repair a URL. Never create an S# absent from the registry.
+- Every factual block (prose, list items, numbered steps, blockquote, table
+  data rows) must cite [S#] that actually supports the referenced claim.
+- Raw URLs appear only in the Sources section.
+- Leave status: pending — you cannot validate your own report.
+- ABSTENTION: if the brief asks about a claim that has NO supporting evidence
+  in the registry/findings, do NOT state it as fact. Write it explicitly as
+  unverified ("Unverified: {claim}") in the Contradictions & Uncertainties
+  section. Never fill an evidence gap with a plausible-sounding source.
+  An honest "no data found" beats a fabricated citation every time.
 
 MODE: EVOLVING
 You are updating an evolving research report.
@@ -416,7 +467,7 @@ Write only the updated report — no preamble.
 When in EVOLVING mode, use only the last {synthesis_window} findings.
 Earlier findings are already integrated into the evolving report.
 
-MODE: FINAL
+MODE: FINAL (no runtime artifacts available)
 Produce the final polished report. You receive:
 - evolving_report: the draft built during per-round synthesis
 - remaining findings: any findings not yet in the draft
@@ -524,10 +575,13 @@ If the report is marked FALLBACK_REPORT, skip normal verification. Note that
 synthesis failed and findings are unprocessed. Set status to unverified_gaps.
 
 CHECKLIST:
-0. URL ACCESSIBILITY (deterministic, before LLM checks):
-   - curl every URL from Sources. 404/403/5xx → [URL_DEAD]. Timeout → [URL_TIMEOUT].
-   - Mark dead URLs in the report. Do NOT remove them — note them as inaccessible.
-   - This is a code check, NOT an LLM check. Use terminal curl, not web_search.
+0. DETERMINISTIC CHECKS (runtime scripts, preferred when Python is available):
+   - freeze provenance: `python3 scripts/source_registry.py freeze {RUN}/source_registry.json` + `python3 scripts/claim_ledger.py freeze {RUN}/claims.jsonl`
+   - structural validation: `python3 scripts/verify_report.py {RUN}/report.md --registry {RUN}/source_registry.json --claims {RUN}/claims.jsonl`
+   - HTTP accessibility: `python3 scripts/check_sources.py {RUN}/source_registry.json --output {RUN}/source_access.json`
+   - finalization: `python3 scripts/finalize_report.py {RUN}/report.md --manifest {RUN}/report_manifest.json --registry {RUN}/source_registry.json --claims {RUN}/claims.jsonl --access {RUN}/source_access.json --semantic-verification passed`
+   - classification: 2xx/3xx ok, 401/403 restricted (anti-bot, NOT dead), 404/410 dead, 429 rate_limited, 5xx transient_error, network network_error
+   - If no Python: curl every URL. 401/403 → [URL_RESTRICTED], 404/410 → [URL_DEAD], 429 → [URL_RATE_LIMITED], timeout → [URL_TIMEOUT]. Mark in the report, do not remove.
 
 1. FACTUAL ACCURACY: Cross-check key claims against source findings.
    - Does the source actually say what the report claims?
