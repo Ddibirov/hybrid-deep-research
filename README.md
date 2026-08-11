@@ -119,9 +119,11 @@ hybrid-deep-research/
 │   ├── verify_report.py          # Structural validation of the report
 │   ├── finalize_report.py        # Writes status: validated only after checks pass
 │   ├── annotate_report.py        # Auto-inserts claim markers (<!-- claims: C# -->)
+│   ├── fact_check_claims.py      # Semantic fact-check tasks + verdict collection (arXiv triad)
+│   ├── eval_citations.py         # Citation-quality scoring: link works / relevant / fact check
 │   ├── research_state.py         # Global budgets + adaptive stopping
 │   └── ...                       # io_utils, report_model, benchmark
-├── tests/                        # 78 unit/integration tests
+├── tests/                        # 84 unit/integration tests
 ├── fixtures/                     # Valid EN/ES end-to-end fixtures
 ├── evals/                        # Benchmark questions
 ├── references/

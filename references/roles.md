@@ -583,6 +583,13 @@ CHECKLIST:
    - classification: 2xx/3xx ok, 401/403 restricted (anti-bot, NOT dead), 404/410 dead, 429 rate_limited, 5xx transient_error, network network_error
    - If no Python: curl every URL. 401/403 → [URL_RESTRICTED], 404/410 → [URL_DEAD], 429 → [URL_RATE_LIMITED], timeout → [URL_TIMEOUT]. Mark in the report, do not remove.
 
+0b. SEMANTIC FACT-CHECK (Phase 7.5; mandatory when >30 sources, optional otherwise):
+   - structural checks prove citations EXIST, not that they SUPPORT the claims.
+   - `python3 scripts/fact_check_claims.py prepare --claims {RUN}/claims.jsonl --registry {RUN}/source_registry.json --out {RUN}/fact_check/`
+   - for each task: fetch evidence URL content, judge supported/refuted/not_found, write {RUN}/fact_check/verdicts/C{id}.json
+   - `python3 scripts/fact_check_claims.py collect --claims {RUN}/claims.jsonl --verdicts {RUN}/fact_check/verdicts/ --out {RUN}/claim_verification.json`
+   - exit 0 = every claim supported. refuted → move claim to Contradictions & Uncertainties (both sides cited). not_found → downgrade confidence or mark Unverified. Never keep a refuted claim as established fact.
+
 1. FACTUAL ACCURACY: Cross-check key claims against source findings.
    - Does the source actually say what the report claims?
    - Are numbers/dates correct?

@@ -8,7 +8,7 @@ description: >-
   Use when user asks for "deep research", "research report", "investigate X",
   "what's happening with Y", "comprehensive analysis of Z", or any question
   requiring 5+ sources synthesized into a structured report with citations.
-version: 4.5.0
+version: 4.6.0
 author: Ddibirov
 license: MIT
 metadata:
@@ -438,6 +438,12 @@ Synthesist operates in two modes:
 
 **Per-round synthesis (evolving mode):** After each round's Director Review, if CONTINUE, Synthesist takes `evolving_report` (from state.json) + this round's new findings → updated draft. Uses only the last `synthesis_window` (default 10) findings to control context — earlier findings are already integrated into the draft. Saves updated draft back to state.json.
 
+**Per-round verification gate (all modes, each round):** Before saving the evolving draft, Synthesist answers three gate questions and appends them to `state.json` under `round_gates`:
+1. Which claims introduced THIS round have no supporting evidence in the registry? (→ drop or mark Unverified)
+2. Which new findings contradict earlier-round findings? (→ surface both sides, never silently pick one)
+3. Which claims became LESS confident this round? (→ downgrade confidence tag)
+Rationale: a wrong intermediate conclusion propagates through later rounds (cascading errors). Checking only at the end (Phase 7) catches the final report but not the decisions it was built on. This gate is cheap — three questions, no new research — and prevents the error from compounding.
+
 **Evolving report format.** The evolving draft must use this stable structure so Synthesist in FINAL mode can polish it without restructuring:
 
 \```
@@ -471,6 +477,8 @@ Synthesist in EVOLVING mode MUST preserve this structure across rounds. Only add
 - `medium` — 1-2 sources, some conflicting, or single-source claims from credible outlets
 - `low` — single source, speculation, or contradictory evidence; MUST also appear in Contradictions & Uncertainties
 - In the Executive Summary, confidence comes from the strongest claim: if any key finding is `low`, say so ("часть выводов основана на единственном источнике").
+
+**Low-confidence escalation (human-in-the-loop, all modes):** If the FINAL report contains any `[confidence: low]` finding, add a "## Требует ручной проверки" / "## Requires Manual Verification" block right after the Executive Summary listing exactly which claims are low-confidence and why. The reader must not mistake a single-source or contradicted claim for established fact. This is the cheap HITL fallback: no extra research, just a visible gate. If a claim is both `low` AND `refuted` by the fact-check layer (Phase 7.5), it must appear here with both flags.
 
 **Short report expansion:** If the final polished report is under 400 words, Synthesist must expand it with a follow-up pass:
 - Send the short report back to Synthesist with: "This report is too brief ({word_count} words). Expand it significantly: add detailed paragraphs for each section (not just bullet points), include specific data and comparisons from the evidence, explain context and significance, use ## headings and ### subheadings. Target at least 800 words."
@@ -606,6 +614,42 @@ Recency: {PASS / FAIL}
 
 **Fallback report handling:** If the report is a fallback (status is `unverified_gaps` in frontmatter or marked FALLBACK_REPORT), skip normal verification — the report is raw findings. Note in the report that synthesis failed and findings are unprocessed.
 
+### Phase 7.5: Semantic Fact-Check (arXiv "Cited but Not Verified")
+
+`verify_report.py` proves citations EXIST and are attached to claims. It cannot prove the cited source SUPPORTS the claim — frontier models keep links alive in 94%+ of cases while factual accuracy sits at 39-77%. This layer closes that gap. **Mandatory when the run has >30 registered sources** (information overload degrades factual accuracy — arXiv ablation shows ~42% drop from 2→150 tool calls); optional otherwise.
+
+1. **Generate per-claim fact-check tasks:**
+   ```bash
+   python3 scripts/fact_check_claims.py prepare \
+     --claims "$RUN/claims.jsonl" \
+     --registry "$RUN/source_registry.json" \
+     --out "$RUN/fact_check/"
+   ```
+   Creates `fact_check/tasks/C{id}.json` per claim (claim text + evidence URLs) and `fact_check/manifest.json`.
+
+2. **Judge each claim (LLM-as-a-judge):** For each task, fetch the evidence URL content (web_extract or curl), then write a verdict file `fact_check/verdicts/C{id}.json`:
+   ```json
+   {
+     "claim_id": "C1",
+     "verdict": "supported | refuted | not_found",
+     "rationale": "1-3 sentences; for refuted, quote what the source actually says",
+     "evidence_source_id": "S9",
+     "checked_at": "ISO-8601"
+   }
+   ```
+   Verdict rules: `supported` = page directly states/implies the claim; `refuted` = page contradicts it; `not_found` = page exists but doesn't address it (or unreadable). A generic page about the topic is NOT `supported`.
+
+3. **Collect and gate:**
+   ```bash
+   python3 scripts/fact_check_claims.py collect \
+     --claims "$RUN/claims.jsonl" \
+     --verdicts "$RUN/fact_check/verdicts/" \
+     --out "$RUN/claim_verification.json"
+   ```
+   Exit 0 only when every claim is `supported`. On `refuted`/`not_found`/missing verdicts → the claim moves to Contradictions & Uncertainties (refuted: both sides cited; not_found: claim downgraded to `medium`/`low` or marked Unverified). Do NOT silently keep a refuted claim in the Key Findings as established fact.
+
+**Fact-check fatigue guard:** If >8 claims need judging, run judges in parallel batches (3-5 per batch, same as investigators). Judge output is a verdict file, not a new finding — no registry mutation.
+
 ## State Management
 
 Track research state for crash recovery. Save to `.hybrid-research/{slug}/state.json` in the current working directory after each phase:
@@ -622,6 +666,7 @@ Track research state for crash recovery. Save to `.hybrid-research/{slug}/state.
   "evolving_report": "",  // draft report updated each round
   "synthesis_window": 10, // only last N findings passed to evolving mode
   "synthesis_attempts": 0,
+  "round_gates": [],       // per-round verification gate answers (Phase 6)
   "started_at": "ISO-8601",
   "director_decisions": []
 }
@@ -674,6 +719,8 @@ Raw findings saved to `.hybrid-research/{slug}/raw_findings/{subtopic}.md`.
 - **Web extract limit.** Investigators MUST NOT call web_extract more than 3 times per round. After 3 extractions — work with search snippets only. Excessive web_extract calls cause subagent timeouts (600s limit). In the test run, one investigator timed out after 13 API calls — the retry with 0 web_extract calls completed in 61 seconds.
 - **web_extract is the #1 timeout cause.** Investigators that call web_extract on every search result will timeout at 600s. Limit to 2-3 web_extract calls per investigator. If an investigator times out, retry with a LIGHTWEIGHT variant: "DO NOT use web_extract. Only use web_search and curl. Summarize from search result snippets only." This completes in ~60s vs 600s timeout.
 - **Reddit blocks unauthenticated access.** Use cookies.txt with curl for Reddit JSON API. If cookies are unavailable, mark Reddit as `[LACK_OF_DATA]` — do NOT fall back to `site:` search (returns irrelevant results for niche topics and lets the LLM fake coverage).
+- **Information overload degrades factual accuracy.** arXiv 2605.06635: Fact Check accuracy drops ~42% as tool calls scale 2→150 — more retrieval makes synthesis WORSE while link/relevance metrics stay stable. Breadth halving + adaptive stop already limit this; when a run exceeds 30 sources, Phase 7.5 semantic fact-check is MANDATORY, not optional. Never equate "more sources" with "more accurate report".
+- **Cascading errors beat end-of-turn fixes.** A wrong intermediate conclusion in Round 1 propagates through all later rounds. Run the per-round verification gate (Phase 6) every round — three questions, no new research — and don't rely only on Phase 7 to catch problems.
 - **Synthesis subagents fabricate URLs.** When generating the final report, the Synthesist may produce plausible-but-wrong GitHub URLs (wrong org name, wrong repo name). Fix: run with the source registry (`scripts/source_registry.py`) — every URL must be registered before synthesis, and `verify_report.py` rejects any `[S#]` not in the frozen registry. Common fabrications: `github.com/Tongyi-Research/DeepResearch` (correct: `Alibaba-NLP/DeepResearch`), `github.com/pewdiepie/odysseus` (correct: `pewdiepie-archdaemon/odysseus`).
 - **Synthesist can fail.** If it does, don't discard findings — compile them into a fallback report with `status: unverified_gaps`. Raw data is better than no data.
 - **Short reports happen.** If the final report is under 400 words, auto-expand with a follow-up prompt — don't accept a thin report.
