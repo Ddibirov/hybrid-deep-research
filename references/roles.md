@@ -575,13 +575,12 @@ If the report is marked FALLBACK_REPORT, skip normal verification. Note that
 synthesis failed and findings are unprocessed. Set status to unverified_gaps.
 
 CHECKLIST:
-0. DETERMINISTIC CHECKS (runtime scripts, preferred when Python is available):
+0. DETERMINISTIC CHECKS (runtime scripts, required — no prompt-level fallback):
    - freeze provenance: `python3 scripts/source_registry.py freeze {RUN}/source_registry.json` + `python3 scripts/claim_ledger.py freeze {RUN}/claims.jsonl`
    - structural validation: `python3 scripts/verify_report.py {RUN}/report.md --registry {RUN}/source_registry.json --claims {RUN}/claims.jsonl`
    - HTTP accessibility: `python3 scripts/check_sources.py {RUN}/source_registry.json --output {RUN}/source_access.json`
    - finalization: `python3 scripts/finalize_report.py {RUN}/report.md --manifest {RUN}/report_manifest.json --registry {RUN}/source_registry.json --claims {RUN}/claims.jsonl --access {RUN}/source_access.json --semantic-verification passed`
    - classification: 2xx/3xx ok, 401/403 restricted (anti-bot, NOT dead), 404/410 dead, 429 rate_limited, 5xx transient_error, network network_error
-   - If no Python: curl every URL. 401/403 → [URL_RESTRICTED], 404/410 → [URL_DEAD], 429 → [URL_RATE_LIMITED], timeout → [URL_TIMEOUT]. Mark in the report, do not remove.
 
 0b. SEMANTIC FACT-CHECK (Phase 7.5; mandatory when >30 sources, optional otherwise):
    - structural checks prove citations EXIST, not that they SUPPORT the claims.

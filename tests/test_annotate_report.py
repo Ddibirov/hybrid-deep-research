@@ -57,6 +57,19 @@ class TestAnnotate(unittest.TestCase):
             self.assertEqual(warnings, [])
             self.assertIn("<!-- claims: C1 -->", out)
 
+    def test_marker_not_glued_to_sources_heading(self):
+        # regression: a marker added to the LAST narrative line used to end up as
+        # `<!-- claims: C1 -->## Sources` because the narrative join had no trailing newline
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            claims = make_claims(tmp)
+            sample = SAMPLE.replace("<!-- claims: C1 -->", "")
+            warnings, out = annotate_report.annotate(sample, annotate_report.load_claim_evidence(claims))
+            self.assertEqual(warnings, [])
+            self.assertNotIn("-->## Sources", out)
+            self.assertNotIn("-->\n## Sources", out)
+            self.assertRegex(out, r"-->\n\n## Sources")
+
     def test_warns_when_no_claim_matches(self):
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)

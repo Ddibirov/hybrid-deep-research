@@ -497,7 +497,7 @@ Synthesist in EVOLVING mode MUST preserve this structure across rounds. Only add
 - Never create an `S#` absent from the frozen registry.
 - Every factual block (prose, list items, numbered steps, blockquote, table data rows) cites `[S#]` that actually supports the referenced claim.
 - Leave `status: pending` in draft frontmatter — the finalizer decides the final status.
-- If the registry/ledger are absent (no Python run), fall back to the standard citation rules below and mark the report for manual verification.
+- The runtime layer (registry, ledger, verify, finalize) is REQUIRED — the pipeline never runs on prompt-level fallbacks. If the registry/ledger are absent, the run is incomplete: stop and re-run the deterministic layer, do not substitute hand-rolled citation checks.
 
 **Abstention rule (all modes):** If a claim in the brief has NO supporting evidence in the findings/registry — do NOT write it as fact. Write it explicitly as unverified: "Не подтверждено: {claim}" or "Unverified: {claim}" in the Contradictions & Uncertainties section. A report that states "no data found" honestly beats a report that invents a citation. Never fill an evidence gap with a plausible-sounding source — that is fabrication, and `verify_report.py` rejects uncited blocks anyway.
 
@@ -628,10 +628,7 @@ Verifier checks the report against findings:
 - `verify_report.py` FAIL lines list exactly which blocks lack citations/claim markers. Fix them (or run `annotate_report.py --apply`), don't re-freeze over them.
 - `annotate_report.py` is the claim-marker helper: `python3 scripts/annotate_report.py "$RUN/report.md" --claims "$RUN/claims.jsonl" --apply` auto-inserts `<!-- claims: C# -->` markers on any block whose cited `[S#]` sources match a claim's evidence. Dry-run by default; pass `--apply` to write.
 
-**Fallback (no Python):** curl every URL from the Sources section:
-- `curl -s -o /dev/null -w "%{http_code}" {url}` (timeout 10s per URL)
-- 200 → OK; 401/403 → `[URL_RESTRICTED]` (anti-bot, not dead); 404/410 → `[URL_DEAD]`; 429 → `[URL_RATE_LIMITED]`; timeout → `[URL_TIMEOUT]`
-- Dead URLs do NOT auto-fail verification, but the report must note them
+**Verification is the deterministic layer, not prompt-level URL checks:** `check_sources.py` (live HTTP), `verify_report.py` (citations attached to claims), `finalize_report.py` (gate). Prompt-level fallbacks are not a mode — a run without the deterministic layer is incomplete and never marked `validated`.
 
 ```
 VERIFICATION

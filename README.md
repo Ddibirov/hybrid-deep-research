@@ -138,7 +138,7 @@ hybrid-deep-research/
     └── sample-report.md        # Example output
 ```
 
-LLMs make semantic decisions; `scripts/` enforce invariants. Run `python3 -m pytest tests/` to verify. The pipeline degrades gracefully: without Python it falls back to prompt-level URL checks and marks the report `unverified_gaps`.
+LLMs make semantic decisions; `scripts/` enforce invariants. Run `python3 -m pytest tests/` to verify. The runtime layer (registry, ledger, verify, finalize) is REQUIRED — there is no prompt-level fallback; a run without the deterministic layer is incomplete and never marked `validated`.
 
 ## Benchmarking
 

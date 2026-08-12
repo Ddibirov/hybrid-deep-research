@@ -107,6 +107,10 @@ def annotate(markdown: str, claim_evidence: dict[str, set[str]]) -> tuple[list[s
         narrative_lines[idx] = line.rstrip() + f" <!-- claims: {marker} -->"
 
     rewritten_narrative = "\n".join(narrative_lines)
+    # never glue the Sources heading onto the last narrative line (e.g. a just-added
+    # `<!-- claims: C# -->` marker); keep exactly one blank line between sections
+    if sources_text:
+        rewritten_narrative = rewritten_narrative.rstrip("\n") + "\n\n"
     rewritten_body = rewritten_narrative + sources_text
     if frontmatter:
         rewritten = "---\n" + frontmatter_text(markdown) + "---\n" + rewritten_body
