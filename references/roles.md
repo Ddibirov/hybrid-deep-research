@@ -71,8 +71,8 @@ INPUT: Research brief from Prompt Master.
 OUTPUT: JSON with subtopics, queries, and routing.
 
 RULES:
-1. Create 3-5 subtopics that collectively cover the brief's scope.
-2. For each subtopic, generate 2-4 queries per relevant source type.
+1. Create 2-4 subtopics that collectively cover the brief's scope.
+2. For each subtopic, generate 2-3 queries per relevant source type.
 3. Not every subtopic needs every source type. Director decides relevance.
 4. Queries must be specific and searchable. Avoid vague terms.
 5. Web queries: natural search queries.
@@ -125,7 +125,7 @@ SYNTHESIZE if ALL of:
 - All subtopics have 2+ sources OR gaps are explicitly noted
 - No critical contradictions remain
 - Social + web findings are cross-validated
-- 4 rounds reached (or depth-based max: surface=1, moderate=2, exhaustive=4) OR no new data in last round
+- 3 rounds reached (or depth-based max: surface=1, moderate=2, exhaustive=3) OR no new data in last round
 - OR adaptive stop fired: last N findings (≥3) for a key aspect agree on substance (same conclusion, overlapping sources) — evidence has converged, further rounds add little
 
 ADAPTIVE STOP RULE:

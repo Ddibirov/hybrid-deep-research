@@ -221,11 +221,9 @@ Constraints: {language, regions, excluded sources, specific requirements}
 ```
 
 **Depth modes map to pipeline parameters:**
-- **surface**: 1 round, 3 subtopics max, no verification, no critic. ~2 min. For quick overviews.
-- **moderate**: 2 rounds, 3-5 subtopics, verification (1 retry max), no critic. ~10 min. Default for most questions.
-- **exhaustive**: 4 rounds, 5 subtopics, verification (3 retries), critic agent. ~30 min. For complex multi-faceted questions.
-
-**Light mode (`--light` in `run_benchmark.py prepare`, or `light: true` in brief.json):** skips the two expensive LLM phases — Falsification Round (Phase 5.5) and Semantic Fact-Check judges (Phase 7.5). Structural validation, coverage gates, escalations and finalize still run. Use for benchmark sweeps where the question is structural (versions, maintenance, pricing) and the goal is baseline tracking, not adversarial proof. A light run can still reach `validated` — it just has no falsification/fact-check evidence behind that status; the manifest records `light: true` so scores are comparable only against other light runs. Default is full mode.
+- **surface**: 1 round, 2-3 subtopics max, no verification, no critic. ~2 min. For quick overviews.
+- **moderate**: 1-2 rounds, 2-4 subtopics, verification (1 retry max), no critic. ~7 min. Default for most questions.
+- **exhaustive**: 3 rounds, 4 subtopics, verification (3 retries), critic agent. ~20 min. For complex multi-faceted questions.
 
 **Depth selection:** Default is `moderate`. Never auto-detect depth from question complexity. Overrides:
 - "quick research" / "quick scan" / "overview" → **surface**
@@ -278,28 +276,28 @@ Read the brief. Decompose into subtopics × source matrix:
   "source_priority": ["web", "reddit", "github"],
   "breadth": 4,
   "depth": 3,
-  "max_rounds": "{based on depth: surface=1, moderate=2, exhaustive=4}",
+  "max_rounds": "{based on depth: surface=1, moderate=2, exhaustive=3}",
   "stopping_criteria": "all key aspects covered with 2+ sources each"
 }
 ```
 
 **Rules:**
-- 3-5 subtopics max
-- Each subtopic gets 2-4 source-specific queries
+- 2-4 subtopics max
+- Each subtopic gets 2-3 source-specific queries
 - Not all sources needed for all subtopics (Director decides relevance)
-- Max 4 rounds total (hard limit — prevents runaway loops)
+- Max 3 rounds total (hard limit — prevents runaway loops)
 
 **Adaptive query strategy:**
-- Round 1: 4 broad exploratory queries per subtopic (cast wide net)
+- Round 1: 3 broad exploratory queries per subtopic (cast wide net)
 - Round 2+: `ceil(breadth/2)` targeted gap-filling queries per subtopic (breadth halving)
 - Director adjusts query instructions per round, not just content
 
 **Date grounding:** Director includes the current date in query generation prompts so investigators generate queries with the correct year.
 
 **Breadth/depth parameters:**
-- `breadth`: queries per subtopic per round (default: 4 for round 1)
-- `depth`: max deep-dive rounds per subtopic (default: based on depth mode — surface=1, moderate=2, exhaustive=4)
-- **Breadth halving:** Each subsequent round, breadth = `ceil(breadth / 2)`. Round 1: 4 queries. Round 2: 2. Round 3: 1. This prevents combinatorial explosion while maintaining diversity.
+- `breadth`: queries per subtopic per round (default: 3 for round 1)
+- `depth`: max deep-dive rounds per subtopic (default: based on depth mode — surface=1, moderate=2, exhaustive=3)
+- **Breadth halving:** Each subsequent round, breadth = `ceil(breadth / 2)`. Round 1: 3 queries. Round 2: 2. Round 3: 1. This prevents combinatorial explosion while maintaining diversity.
 - Director can set per-subtopic depth: "subtopic 1 → depth=3 (important), subtopic 2 → depth=1 (surface scan)"
 
 **Research goal as context carrier:** Each query carries a `research_goal` — why it's being asked and what to do with results. Investigators receive this context. In Round 2+, follow-up queries are built from previous round's `research_goal + follow_up_questions`.
@@ -311,7 +309,7 @@ Dispatch parallel subagents via `delegate_task`. Each investigator gets ONLY the
 Detailed role prompts in `references/roles.md`.
 
 **Execution rules:**
-- **Max 3 investigators per batch.** If Director created 5 subtopics, they run in batches: first 3, then 2. Each subtopic = 1 investigator agent.
+- **Max 3 investigators per batch.** If Director created 4 subtopics, they run in batches: first 3, then 1. Each subtopic = 1 investigator agent.
 - Each investigator returns structured finding records (see references/roles.md for format). Each record has: rational, evidence, summary, URL, date, source type, credibility, confidence level.
 - Investigators receive `research_goal` per query. Findings should reference the goal: 'This finding addresses the goal of {research_goal}'.
 - **Compression before return:** Investigators must compress findings before returning. Each finding record should contain ONLY:
@@ -430,7 +428,7 @@ Refined queries: [only if CONTINUE]
 - <2 sources for key aspects
 
 **SYNTHESIZE triggers (priority order — first match wins):**
-1. **Max rounds reached** — surface=1, moderate=2, exhaustive=4 rounds completed → SYNTHESIZE unconditionally
+1. **Max rounds reached** — surface=1, moderate=2, exhaustive=3 rounds completed → SYNTHESIZE unconditionally
 2. **No new data for 2 consecutive rounds** → SYNTHESIZE (further rounds won't help)
 3. **All key aspects covered with 2+ sources** → SYNTHESIZE if ≥2 rounds completed
 4. **Persistent rate limits** blocking critical subtopics → SYNTHESIZE, note in Uncertainties
@@ -450,8 +448,8 @@ Refined queries: [only if CONTINUE]
 
 Before final synthesis, run ONE targeted round on the report's key claims. Purpose: try to break the conclusion, not confirm it.
 
-**Procedure:**
-1. Take the top 3-5 key claims from the evolving report (highest importance).
+**Procedure (light weight):**
+1. Take the top 1-3 key claims (highest importance only — not all claims).
 2. For each, dispatch ONE focused investigator with the explicit goal: *"Find evidence that contradicts or weakens this claim. If none exists, say so explicitly. Do NOT search for supporting evidence."*
 3. Investigator registers any contradicting sources into the source registry (same `source_registry.py add` flow). A counter-source that is not a real URL does not count — the registry enforces this.
 4. Director review of falsification results:
@@ -459,7 +457,7 @@ Before final synthesis, run ONE targeted round on the report's key claims. Purpo
    - **Weak contradiction** (lower authority weight than the supporting sources) → proceed, add the counter-claim to "Contradictions & Uncertainties" with both sides cited.
    - **Strong contradiction** (comparable/higher authority, directly conflicts) → do NOT finalize as-is. Either resolve in a follow-up round (CONTINUE) or present both sides prominently with the conflict called out. Never silently drop a strong counter-claim.
 
-**Cost control:** Falsification round is 1 round max, 3-5 investigators max, runs only on final synthesis (not per-round evolving mode). If it hits rate limits or agent failures, note `[FALSIFICATION_SKIPPED: reason]` in Uncertainties and proceed. **Light mode (`light: true` in brief.json): skip this phase entirely** — note `[FALSIFICATION_SKIPPED: light mode]` in Uncertainties.
+**Cost control:** Falsification round is 1 round max, 1-2 investigators max (top claims only), runs only on final synthesis (not per-round evolving mode). If it hits rate limits or agent failures, note `[FALSIFICATION_SKIPPED: reason]` in Uncertainties and proceed.
 
 **Why:** This is the cheapest reliable defense against confident-but-wrong reports. Verifying URLs (Phase 7) checks that sources exist; falsification checks that the *conclusion* survives contact with counter-evidence.
 
@@ -652,16 +650,16 @@ Recency: {PASS / FAIL}
 
 ### Phase 7.5: Semantic Fact-Check (arXiv "Cited but Not Verified")
 
-`verify_report.py` proves citations EXIST and are attached to claims. It cannot prove the cited source SUPPORTS the claim — frontier models keep links alive in 94%+ of cases while factual accuracy sits at 39-77%. This layer closes that gap. **Mandatory when the run has >30 registered sources** (information overload degrades factual accuracy — arXiv ablation shows ~42% drop from 2→150 tool calls); optional otherwise. **Light mode (`light: true` in brief.json): skip this phase** — record `semantic_verification: unavailable` in finalize.
+`verify_report.py` proves citations EXIST and are attached to claims. It cannot prove the cited source SUPPORTS the claim — frontier models keep links alive in 94%+ of cases while factual accuracy sits at 39-77%. This layer closes that gap. **Mandatory when the run has >30 registered sources** (information overload degrades factual accuracy — arXiv ablation shows ~42% drop from 2→150 tool calls); optional otherwise.
 
-1. **Generate per-claim fact-check tasks:**
+1. **Generate per-claim fact-check tasks for HIGH-VALUE claims only** (importance `critical` or `high` — not every claim):
    ```bash
    python3 scripts/fact_check_claims.py prepare \
      --claims "$RUN/claims.jsonl" \
      --registry "$RUN/source_registry.json" \
      --out "$RUN/fact_check/"
    ```
-   Creates `fact_check/tasks/C{id}.json` per claim (claim text + evidence URLs) and `fact_check/manifest.json`.
+   Creates `fact_check/tasks/C{id}.json` per claim (claim text + evidence URLs) and `fact_check/manifest.json`. Medium/low claims are covered by structural verification — no judge needed.
 
 2. **Judge each claim (LLM-as-a-judge):** For each task, fetch the evidence URL content (web_extract or curl), then write a verdict file `fact_check/verdicts/C{id}.json`:
    ```json
@@ -684,7 +682,7 @@ Recency: {PASS / FAIL}
    ```
    Exit 0 only when every claim is `supported`. On `refuted`/`not_found`/missing verdicts → the claim moves to Contradictions & Uncertainties (refuted: both sides cited; not_found: claim downgraded to `medium`/`low` or marked Unverified). Do NOT silently keep a refuted claim in the Key Findings as established fact.
 
-**Fact-check fatigue guard:** If >8 claims need judging, run judges in parallel batches (3-5 per batch, same as investigators). Judge output is a verdict file, not a new finding — no registry mutation.
+**Fact-check fatigue guard:** If >5 claims need judging, judge only the top 5 by importance (critical > high) and leave the rest to structural verification. Judge output is a verdict file, not a new finding — no registry mutation.
 
 ### Phase 7.6: Repair Round (verification as test-time scaling, v4.8.0)
 
@@ -785,10 +783,10 @@ Raw findings saved to `.hybrid-research/{slug}/raw_findings/{subtopic}.md`.
 ## Pitfalls
 
 - **Don't skip Prompt Master.** Director gets confused by vague user input. Always brief first.
-- **Max 3 investigators per batch.** If Director created 5 subtopics, run in batches of 3, then 2.
+- **Max 3 investigators per batch.** If Director created 4 subtopics, run in batches of 3, then 1.
 - **Handle 429 rate limits explicitly.** Return `[SOURCE_ERROR: RATE_LIMIT]` and stop. Never retry in the same round. Reddit has no fallback — mark `[LACK_OF_DATA]` rather than faking coverage.
 - **Don't trust social engagement alone.** Viral ≠ accurate. Cross-validate with web sources.
-- **Hard limit: 4 rounds (exhaustive mode).** Surface=1, moderate=2, exhaustive=4. Director respects depth mode. If not enough after max rounds, report what you have with gaps noted.
+- **Hard limit: 3 rounds (exhaustive mode).** Surface=1, moderate=2, exhaustive=3. Director respects depth mode. If not enough after max rounds, report what you have with gaps noted.
 - **Verification is mandatory.** 3 retries max. After 3 FAILs → publish with `status: unverified_gaps`.
 - **Prune before Synthesis.** Investigators must return structured records (rational, evidence, summary) — not raw prose. Low-quality findings (boilerplate, cookie banners, copyright notices) must be discarded at extraction time.
 - **All roles share one model** (`delegation.model`). There is no per-role model separation.

@@ -22,15 +22,6 @@ class TestRunBenchmark(unittest.TestCase):
             brief = json.loads((tmp / "run" / "brief.json").read_text())
             self.assertEqual(brief["question_id"], "software-01")
             self.assertEqual(brief["depth"], "surface")
-            self.assertIs(brief["light"], False)
-
-    def test_prepare_light_flag(self):
-        with tempfile.TemporaryDirectory() as td:
-            tmp = Path(td)
-            rc = run_benchmark.prepare("software-02", tmp / "run", "surface", Path(__file__).parent.parent / "evals" / "questions.json", light=True)
-            self.assertEqual(rc, 0)
-            brief = json.loads((tmp / "run" / "brief.json").read_text())
-            self.assertIs(brief["light"], True)
 
     def test_prepare_unknown_question(self):
         with tempfile.TemporaryDirectory() as td:

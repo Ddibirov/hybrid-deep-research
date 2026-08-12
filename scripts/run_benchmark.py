@@ -55,7 +55,7 @@ def load_questions(path: Path) -> list[dict]:
     return data if isinstance(data, list) else data.get("questions", [])
 
 
-def prepare(question_id: str, out: Path, depth: str, evals_path: Path, light: bool = False) -> int:
+def prepare(question_id: str, out: Path, depth: str, evals_path: Path) -> int:
     questions = load_questions(evals_path)
     match = next((q for q in questions if q.get("id") == question_id), None)
     if not match:
@@ -70,7 +70,6 @@ def prepare(question_id: str, out: Path, depth: str, evals_path: Path, light: bo
         "time_sensitivity": match.get("time_sensitivity", "medium"),
         "expected_source_classes": match.get("expected_source_classes", []),
         "depth": depth,
-        "light": light,
         "prepared_at": _utcnow(),
         "status": "prepared",
     }
@@ -79,7 +78,7 @@ def prepare(question_id: str, out: Path, depth: str, evals_path: Path, light: bo
     print(f"Prepared run: {out}")
     print(f"  question: {match['id']} ({match.get('category','general')})")
     print(f"  prompt:   {match['prompt'][:100]}{'...' if len(match['prompt'])>100 else ''}")
-    print(f"  depth:    {depth}{'  [LIGHT: no falsification round, no LLM fact-check judges]' if light else ''}")
+    print(f"  depth:    {depth}")
     print("Run the research pipeline on this brief, then call: run_benchmark.py score --runs " + str(out))
     return 0
 
@@ -198,7 +197,6 @@ def main(argv: list[str] | None = None) -> int:
     p_prep.add_argument("--question", required=True)
     p_prep.add_argument("--out", type=Path, required=True)
     p_prep.add_argument("--depth", default="surface", choices=["surface", "moderate", "exhaustive"])
-    p_prep.add_argument("--light", action="store_true", help="skip falsification round and LLM fact-check judges (cheap benchmark runs)")
     p_prep.add_argument("--evals", type=Path, default=EVALS)
 
     p_score = sub.add_parser("score")
@@ -212,7 +210,7 @@ def main(argv: list[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
     if args.command == "prepare":
-        return prepare(args.question, args.out, args.depth, args.evals, args.light)
+        return prepare(args.question, args.out, args.depth, args.evals)
     if args.command == "score":
         return score(args.runs, args.baseline, args.json)
     return baseline(args.baseline, args.json)
