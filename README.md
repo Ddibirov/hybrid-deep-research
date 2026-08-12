@@ -147,12 +147,16 @@ Track whether the skill actually improves over time — not just "tests pass":
 ```bash
 # create a run brief from an evals question
 python3 scripts/run_benchmark.py prepare --question software-01 --out .hybrid-research/bench-software-01
+# cheap benchmark sweep: skip falsification + LLM fact-check judges
+python3 scripts/run_benchmark.py prepare --question software-02 --light --out .hybrid-research/bench-software-02
 # run the research pipeline on that brief (agent work), then score it:
 python3 scripts/run_benchmark.py score --runs .hybrid-research/bench-software-01 \
     --baseline .hybrid-research/benchmark-results.json
 # view the baseline table
 python3 scripts/run_benchmark.py baseline --baseline .hybrid-research/benchmark-results.json
 ```
+
+`--light` runs skip the two expensive LLM phases (Falsification Round, Semantic Fact-Check judges) and record `light: true` in brief.json/manifest. They still run structural validation, coverage gates, escalations and finalize — so a light run can reach `validated`, but that status carries no falsification/fact-check evidence. Compare light runs only against other light runs.
 
 `score` combines `benchmark.py` quality metrics (validation, citation coverage, primary-source ratio, access health, budget utilization) with `eval_citations.py` triad scores (link works / relevant / fact check) and the **DRACO-style rubric** (`rubric_*` metrics): factual accuracy ≈50% weight + negative penalties for refuted/not_found claims, numeric mismatches, and unresolved critical claims. Appends to the baseline, and exits 1 if any metric degraded vs the previous run of the same id. See `evals/questions.json` for available benchmark questions.
 

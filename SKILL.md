@@ -225,6 +225,8 @@ Constraints: {language, regions, excluded sources, specific requirements}
 - **moderate**: 2 rounds, 3-5 subtopics, verification (1 retry max), no critic. ~10 min. Default for most questions.
 - **exhaustive**: 4 rounds, 5 subtopics, verification (3 retries), critic agent. ~30 min. For complex multi-faceted questions.
 
+**Light mode (`--light` in `run_benchmark.py prepare`, or `light: true` in brief.json):** skips the two expensive LLM phases — Falsification Round (Phase 5.5) and Semantic Fact-Check judges (Phase 7.5). Structural validation, coverage gates, escalations and finalize still run. Use for benchmark sweeps where the question is structural (versions, maintenance, pricing) and the goal is baseline tracking, not adversarial proof. A light run can still reach `validated` — it just has no falsification/fact-check evidence behind that status; the manifest records `light: true` so scores are comparable only against other light runs. Default is full mode.
+
 **Depth selection:** Default is `moderate`. Never auto-detect depth from question complexity. Overrides:
 - "quick research" / "quick scan" / "overview" → **surface**
 - "deep dive" / "in-depth" / "thorough" → **exhaustive**
@@ -457,7 +459,7 @@ Before final synthesis, run ONE targeted round on the report's key claims. Purpo
    - **Weak contradiction** (lower authority weight than the supporting sources) → proceed, add the counter-claim to "Contradictions & Uncertainties" with both sides cited.
    - **Strong contradiction** (comparable/higher authority, directly conflicts) → do NOT finalize as-is. Either resolve in a follow-up round (CONTINUE) or present both sides prominently with the conflict called out. Never silently drop a strong counter-claim.
 
-**Cost control:** Falsification round is 1 round max, 3-5 investigators max, runs only on final synthesis (not per-round evolving mode). If it hits rate limits or agent failures, note `[FALSIFICATION_SKIPPED: reason]` in Uncertainties and proceed.
+**Cost control:** Falsification round is 1 round max, 3-5 investigators max, runs only on final synthesis (not per-round evolving mode). If it hits rate limits or agent failures, note `[FALSIFICATION_SKIPPED: reason]` in Uncertainties and proceed. **Light mode (`light: true` in brief.json): skip this phase entirely** — note `[FALSIFICATION_SKIPPED: light mode]` in Uncertainties.
 
 **Why:** This is the cheapest reliable defense against confident-but-wrong reports. Verifying URLs (Phase 7) checks that sources exist; falsification checks that the *conclusion* survives contact with counter-evidence.
 
@@ -650,7 +652,7 @@ Recency: {PASS / FAIL}
 
 ### Phase 7.5: Semantic Fact-Check (arXiv "Cited but Not Verified")
 
-`verify_report.py` proves citations EXIST and are attached to claims. It cannot prove the cited source SUPPORTS the claim — frontier models keep links alive in 94%+ of cases while factual accuracy sits at 39-77%. This layer closes that gap. **Mandatory when the run has >30 registered sources** (information overload degrades factual accuracy — arXiv ablation shows ~42% drop from 2→150 tool calls); optional otherwise.
+`verify_report.py` proves citations EXIST and are attached to claims. It cannot prove the cited source SUPPORTS the claim — frontier models keep links alive in 94%+ of cases while factual accuracy sits at 39-77%. This layer closes that gap. **Mandatory when the run has >30 registered sources** (information overload degrades factual accuracy — arXiv ablation shows ~42% drop from 2→150 tool calls); optional otherwise. **Light mode (`light: true` in brief.json): skip this phase** — record `semantic_verification: unavailable` in finalize.
 
 1. **Generate per-claim fact-check tasks:**
    ```bash
