@@ -122,6 +122,33 @@ def _research_budget_exhausted(state: dict) -> bool:
     )
 
 
+SATURATION_THRESHOLD = 3  # >=3 high-credibility sources on ALL key aspects → saturated
+
+
+def subtopic_saturated(state: dict, subtopic: str, high_cred_sources: int, key_aspects_covered: int, key_aspects_total: int) -> bool:
+    """Per-subtopic adaptive depth (ecosystem candidate #5).
+
+    A subtopic is saturated when it already has >=3 high-credibility sources
+    and ALL its key aspects are covered (no open sub-questions). Saturated
+    subtopics are skipped in the next round — global adaptive stop already
+    exists (Phase 5, trigger 5); this is the per-subtopic complement: a single
+    exhausted subtopic should not force the whole run to continue, and a
+    saturated one should not be re-researched while others still need rounds.
+    """
+    record = state.setdefault('subtopic_saturation', {}).get(subtopic, {})
+    if high_cred_sources >= SATURATION_THRESHOLD and key_aspects_covered >= key_aspects_total > 0:
+        return True
+    return bool(record.get('saturated'))
+
+
+def mark_saturated(state: dict, subtopic: str) -> dict:
+    state.setdefault('subtopic_saturation', {})[subtopic] = {
+        'saturated': True,
+        'marked_at': utc_now(),
+    }
+    return state
+
+
 def decide_next(path: Path, gaps: list[dict], threshold: float = 0.25) -> dict:
     state = load_state(path)
     if _research_budget_exhausted(state):

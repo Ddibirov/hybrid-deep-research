@@ -15,6 +15,7 @@ import eval_citations  # noqa: E402
 
 def make_run(tmp: Path) -> dict:
     """Registry + claims + report + access + verdicts, mirroring a finished run."""
+    tmp.mkdir(parents=True, exist_ok=True)
     registry = {
         "version": 1, "frozen": True, "sources": [
             {"id": "S1", "title": "One", "url": "https://one.example.com",
@@ -116,6 +117,54 @@ class TestFactCheckClaims(unittest.TestCase):
             data = json.loads(out.read_text())
             self.assertEqual(sorted(data["missing_verdicts"]), ["C1", "C2"])
 
+    def test_prepare_extracts_claimed_numbers(self):
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            run = make_run(tmp)
+            out = tmp / "fc"
+            fact_check_claims.prepare(tmp / "claims.jsonl", tmp / "source_registry.json", out)
+            # C1 has no numbers
+            task = json.loads((out / "tasks" / "C1.json").read_text())
+            self.assertEqual(task["claimed_numbers"], [])
+
+    def test_collect_numeric_precision(self):
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            run = make_run(tmp)
+            verdicts = tmp / "v"
+            verdicts.mkdir()
+            (verdicts / "C1.json").write_text(json.dumps({
+                "claim_id": "C1", "verdict": "supported", "rationale": "ok",
+                "evidence_source_id": "S1",
+                "numeric_check": {"match": "match", "claimed": ["99"], "found": ["99"]},
+            }))
+            (verdicts / "C2.json").write_text(json.dumps({
+                "claim_id": "C2", "verdict": "supported", "rationale": "ok",
+                "evidence_source_id": "S2",
+                "numeric_check": {"match": "none", "claimed": [], "found": []},
+            }))
+            out = tmp / "claim_verification.json"
+            fact_check_claims.collect(tmp / "claims.jsonl", verdicts, out)
+            data = json.loads(out.read_text())
+            self.assertIn("numeric_precision", data)
+
+    def test_collect_rejects_invalid_numeric_check(self):
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            run = make_run(tmp)
+            verdicts = tmp / "v"
+            verdicts.mkdir()
+            (verdicts / "C1.json").write_text(json.dumps({
+                "claim_id": "C1", "verdict": "supported", "rationale": "ok",
+                "evidence_source_id": "S1",
+                "numeric_check": {"match": "bogus"},
+            }))
+            out = tmp / "claim_verification.json"
+            rc = fact_check_claims.collect(tmp / "claims.jsonl", verdicts, out)
+            self.assertEqual(rc, 1)
+            data = json.loads(out.read_text())
+            self.assertTrue(any("numeric_check" in p for p in data["problems"]))
+
 
 class TestEvalCitations(unittest.TestCase):
     def test_score_all_dimensions(self):
@@ -133,6 +182,18 @@ class TestEvalCitations(unittest.TestCase):
             self.assertEqual(data["link_works"]["checked"], 2)
             self.assertEqual(data["relevant_content"]["cited_in_report"], 2)
             self.assertEqual(data["fact_check"]["supported"], 1)
+
+    def test_score_reports_numeric_precision(self):
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            run = make_run(tmp)
+            (tmp / "claim_verification.json").write_text(json.dumps({
+                "verdicts": 2, "supported": 2, "refuted": 0, "not_found": 0,
+                "numeric_precision": {"claims_with_numbers": 2, "exact": 1, "rate": 0.5},
+            }), encoding="utf-8")
+            eval_citations.score(tmp, None, None, None, None)
+            data = json.loads((tmp / "eval_citations.json").read_text())
+            self.assertEqual(data["fact_check"]["numeric_precision"]["rate"], 0.5)
 
     def test_cli_dry_run(self):
         with tempfile.TemporaryDirectory() as td:

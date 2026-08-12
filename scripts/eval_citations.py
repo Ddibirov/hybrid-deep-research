@@ -109,7 +109,8 @@ def score(run: Path, registry: Path | None, claims: Path | None, access: Path | 
         supported = fc.get("supported") or 0
         fact = {"checked": total, "supported": supported,
                 "rate": round(supported / total, 3) if total else None,
-                "refuted": fc.get("refuted") or 0, "not_found": fc.get("not_found") or 0}
+                "refuted": fc.get("refuted") or 0, "not_found": fc.get("not_found") or 0,
+                "numeric_precision": fc.get("numeric_precision") or {}}
 
     result = {
         "generated_at": utc_now(),
@@ -137,6 +138,9 @@ def score(run: Path, registry: Path | None, claims: Path | None, access: Path | 
         print("  Relevant:      need registry + report")
     if fact:
         print(f"  Fact Check:    {fact['supported']}/{fact['checked']} claims supported (rate {fact['rate']}) — refuted {fact['refuted']}, not_found {fact['not_found']}")
+        np_ = fact.get("numeric_precision") or {}
+        if np_:
+            print(f"  Numeric:       {np_.get('exact')}/{np_.get('claims_with_numbers')} numeric claims verbatim (rate {np_.get('rate')})")
     else:
         print("  Fact Check:    no claim_verification.json — run fact_check_claims.py first")
 

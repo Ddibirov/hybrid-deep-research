@@ -54,7 +54,7 @@ def _source_access_status(path: Path | None) -> str:
     return 'complete' if all(status=='ok' for status in statuses) else 'partial'
 
 
-def finalize(report_path: Path, manifest_path: Path, registry_path: Path, claims_path: Path, *, semantic_verification: str, access_path: Path | None = None) -> dict:
+def finalize(report_path: Path, manifest_path: Path, registry_path: Path, claims_path: Path, *, semantic_verification: str, access_path: Path | None = None, escalations_path: Path | None = None, coverage_path: Path | None = None) -> dict:
     report_path=Path(report_path); manifest_path=Path(manifest_path); registry=load_registry(registry_path); ledger=load_ledger(claims_path)
     if not registry.get('frozen'): raise RuntimeError('source registry must be frozen before finalization')
     if not ledger['meta'].get('frozen'): raise RuntimeError('claim ledger must be frozen before finalization')
@@ -73,6 +73,26 @@ def finalize(report_path: Path, manifest_path: Path, registry_path: Path, claims
     structural='passed' if not errors else 'failed'
     status='validated' if semantic_verification=='passed' and structural=='passed' and coverage=='complete' else 'unverified_gaps'
 
+    # v4.8.0 escalation rule: a refuted claim surviving to the final report
+    # forbids `validated` — the run must be needs_review (human decision).
+    if escalations_path is not None and escalations_path.exists():
+        try:
+            esc=json.loads(escalations_path.read_text(encoding='utf-8'))
+            if esc.get('status')=='needs_review':
+                status='needs_review'
+        except (OSError, json.JSONDecodeError):
+            pass
+
+    # v4.8.0 coverage rule: domain-independence / primary-source / success-criteria
+    # gaps forbid `validated` — the run must be coverage_gap until fixed.
+    if coverage_path is not None and coverage_path.exists():
+        try:
+            cov=json.loads(coverage_path.read_text(encoding='utf-8'))
+            if cov.get('status')=='coverage_gap':
+                status='coverage_gap'
+        except (OSError, json.JSONDecodeError):
+            pass
+
     manifest={}
     if manifest_path.exists():
         manifest=json.loads(manifest_path.read_text(encoding='utf-8'))
@@ -86,6 +106,6 @@ def finalize(report_path: Path, manifest_path: Path, registry_path: Path, claims
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser=argparse.ArgumentParser(description=__doc__); parser.add_argument('report',type=Path); parser.add_argument('--manifest',required=True,type=Path); parser.add_argument('--registry',required=True,type=Path); parser.add_argument('--claims',required=True,type=Path); parser.add_argument('--semantic-verification',required=True,choices=['passed','failed','unavailable']); parser.add_argument('--access',type=Path)
-    args=parser.parse_args(argv); result=finalize(args.report,args.manifest,args.registry,args.claims,semantic_verification=args.semantic_verification,access_path=args.access); print(json.dumps(result,ensure_ascii=False,indent=2,sort_keys=True)); return 0 if result['status']=='validated' else 1
+    parser=argparse.ArgumentParser(description=__doc__); parser.add_argument('report',type=Path); parser.add_argument('--manifest',required=True,type=Path); parser.add_argument('--registry',required=True,type=Path); parser.add_argument('--claims',required=True,type=Path); parser.add_argument('--semantic-verification',required=True,choices=['passed','failed','unavailable']); parser.add_argument('--access',type=Path); parser.add_argument('--escalations',type=Path); parser.add_argument('--coverage',type=Path)
+    args=parser.parse_args(argv); result=finalize(args.report,args.manifest,args.registry,args.claims,semantic_verification=args.semantic_verification,access_path=args.access,escalations_path=args.escalations,coverage_path=args.coverage); print(json.dumps(result,ensure_ascii=False,indent=2,sort_keys=True)); return 0 if result['status']=='validated' else 1
 if __name__=='__main__': raise SystemExit(main())

@@ -8,7 +8,7 @@ description: >-
   Use when user asks for "deep research", "research report", "investigate X",
   "what's happening with Y", "comprehensive analysis of Z", or any question
   requiring 5+ sources synthesized into a structured report with citations.
-version: 4.6.0
+version: 4.8.0
 author: Ddibirov
 license: MIT
 metadata:
@@ -50,11 +50,16 @@ The user sees: request → result. That's it.
 
 ## Runtime scripts (v6, from the reliability fork)
 
-`scripts/` contains a deterministic runtime layer copied from the carlosmartinezfyd fork (v6.0.0, 2026-08-10): source registry, claim ledger, research state/budgets, HTTP checker, report validator, finalizer (74 unit tests in `tests/`). These enforce invariants that LLM prompts cannot be trusted to enforce (URL fabrication, citation integrity, status self-certification).
+`scripts/` contains a deterministic runtime layer copied from the carlosmartinezfyd fork (v6.0.0, 2026-08-10): source registry, claim ledger, research state/budgets, HTTP checker, report validator, finalizer, claim-marker helper, semantic fact-check, citation scoring, deterministic dedup, coverage assertions, structured escalations, benchmark runner (89+ unit tests in `tests/`). These enforce invariants that LLM prompts cannot be trusted to enforce (URL fabrication, citation integrity, status self-certification).
+
+**Maintenance rule (session-tested 2026-08-12):** every new runtime script ships with tests — new script → new test file in `tests/`, new behavior → new test class in the existing file. Run the whole suite before trusting a change: `cd <skill_dir> && python3 -m pytest tests/ -q`. The v4.8.0 round confirmed the suite earns its cost: it caught a `penalty` UnboundLocalError in benchmark.py (rubric division when `total_fc == 0` — guard the factor) and a check_coverage false positive (domain-independence flagged claims with ONE source as mirror inflation — the check must require ≥2 sources before demanding different domains).
 
 **Decision (Сэр, 2026-08-10): quality beats the "no code" marketing fit. Runtime layer is accepted.** Integrate registry+ledger+finalizer as the core: the orchestrator (main session) maintains the journals after each round — subagents return findings and never mutate shared files. Full analysis, per-script inventory, and adopt decision: `references/fork-v6-runtime.md`.
 Exact marker/citation format that `verify_report.py` demands (hard-won, costly to rediscover): `references/verify-report-citation-format.md`.
 Improvement candidates from the 2026-08 dogfood run (benchmarks, adaptive compute, verification, social): `references/improvement-candidates-2026-08.md`. Adopted into v4.4.0 (2026-08-11): abstention rule (Phase 6), falsification round (Phase 5.5), adaptive stop (Director trigger 5). Do not re-propose these as new ideas.
+Evidence base from the 2026-08-11 web research round (arXiv "Cited but Not Verified", DeepResearchBench/DRACO/DEER, Zep CoVE, Anthropic engineering): `references/research-evidence-2026-08.md`. Adopted into v4.6.0: Phase 7.5 semantic fact-check, per-round verification gate, low-confidence escalation, eval_citations triad. Do not re-propose these as new ideas.
+Ecosystem snapshot 2026-08-11 (MCP servers, open frameworks, Odysseus rename to `odysseus-dev`, skills standard) + 7 improvement candidates — **ALL ADOPTED into v4.8.0 (2026-08-12)**: repair round (Phase 7.6), DRACO rubric scoring (`rubric_*` in benchmark), deterministic dedup (`dedup_claims.py`), coverage assertions (`check_coverage.py`), per-subtopic saturation (`research_state.subtopic_saturated`), structured escalations (`escalations.py` + `needs_review` rule in finalize), verbatim numeric check (`numeric_check` in fact_check_claims + `numeric_precision` metric). Do not re-propose these as new ideas: `references/ecosystem-2026-08.md`.
+Competitor found 2026-08-12: **SenseNova sn-deep-research** (OpenSenseNova/SenseNova-Skills, SenseTime, 4.9k★ MIT, active) — 9 agents (scout/plan/research/review/report-planner/report-writer/report-stitcher/supplement-planner/perspective), 3 modes (quick/normal/heavy), **source_cache content-hash snapshots** (`url_sha256/content_sha256.md` + `contains_direct_quote` mechanical verbatim-quote check — directly implements our queued "verbatim numeric check" candidate), ~3.7k lines of schema validators (validate_evidence/outline/plan), live progress WebUI, language anchoring. NO falsification round, NO freeze gate, NO benchmark runner. Full comparison + repo inspection recipe: `references/sensenova-sn-deep-research.md`.
 
 ## Architecture
 
@@ -153,7 +158,14 @@ LLMs make semantic decisions; the runtime scripts enforce invariants. Available 
 - `check_sources.py` — deterministic HTTP accessibility check: 2xx/3xx `ok`, 401/403 `restricted` (not dead!), 404/410 `dead`, 429 `rate_limited`, 5xx `transient_error`, network `network_error`.
 - `verify_report.py` — structural validation: every factual block must cite `[S#]` from the registry; rejects unknown source IDs and uncited factual blocks.
 - `finalize_report.py` — writes `status: validated` only after semantic + structural checks pass. A draft cannot self-certify.
-- `research_state.py` — global budgets and adaptive stopping (optional).
+- `annotate_report.py` — auto-inserts claim markers (`<!-- claims: C# -->`) on blocks whose cited `[S#]`s match a claim's evidence. Dry-run by default; `--apply` writes. Safety: parse functions operate on the report body WITHOUT frontmatter — never apply their offsets to the full file (indices shift by frontmatter length); strip frontmatter, edit body, rebuild file.
+- `fact_check_claims.py` — Phase 7.5: generates per-claim judge tasks + collects verdicts (supported/refuted/not_found) + verbatim numeric check (`numeric_check` in verdict, `numeric_precision` aggregate).
+- `eval_citations.py` — citation-quality triad scoring: link works / relevant / fact check (+ numeric precision).
+- `dedup_claims.py` — deterministic claim dedup BEFORE Gap Check: identical normalized text, same numbers + overlapping source sets, heavy source-set overlap on high-importance claims. Mechanical ~80%; paraphrases left to LLM Gap Check.
+- `check_coverage.py` — coverage assertions: key claims need ≥2 evidence sources from DIFFERENT domains (mirror detection); high-importance claim without a primary source must not claim high confidence; success-criteria checklist from brief. `status: coverage_gap` blocks `validated`.
+- `escalations.py` — structured human escalation: machine-readable `escalations.json` (claim_id, verdict, conflicting sources, recommended action). Rule: a claim that is `refuted` OR has `numeric_mismatch` surviving to the final report ⇒ `status: needs_review`, `validated` forbidden (enforced by finalize_report).
+- `run_benchmark.py` — benchmark runner: `prepare` brief from `evals/questions.json`, `score` run vs baseline (+ DRACO `rubric_*` metrics + numeric precision), `baseline` table. See README "Benchmarking" for commands. Benchmark runs are deterministic-only by default (the LLM fact-check judges from Phase 7.5 are not executed) — expect `rubric_factual_accuracy: 0.0` and finalize `status: unverified_gaps` in the score; that asserts the deterministic chain, not a failure. Confirmed on the 2026-08-12 LangGraph-vs-CrewAI run: structural passed, citation_coverage 1.0, source_access 0.88, rubric_total 0.43, status unverified_gaps.
+- `research_state.py` — global budgets, adaptive stopping, and per-subtopic saturation (`subtopic_saturated`, `mark_saturated`). Usage: `init <path> --mode <surface|moderate|exhaustive>` to seed budgets, `consume <path> <role> --amount N` to track per-role spend (e.g. `consume investigator --amount 3` after an investigator batch), `mark_saturated <path> <subtopic>`.
 
 Run directory layout:
 
@@ -350,7 +362,23 @@ Contradictions between sources: [list]
 Rate-limited sources: [list] — do NOT re-query in the same round
 Zero-result subtopics: [list] — if 2+ consecutive searches returned nothing, EXCLUDE from further rounds
 Agent failures: [list] — subtopics where investigator crashed
+Semantic duplicates: [list] — findings that say the same thing from different URLs
 ```
+
+**Semantic dedup rule (all modes):** The registry dedupes URLs, not content. Two findings from different URLs can carry the same claim (same numbers, same conclusion, often syndicated news or mirror posts). In Gap Check, identify content-level duplicates and mark all but the strongest as `[DUP: S#]`:
+- Keep the finding with the highest authority weight (official_docs > news > blog > social)
+- If equal weight, keep the most recent
+- Mark the rest `[DUP: kept S#]` — they stay in the registry (they are real sources) but do NOT pass to Synthesist as independent evidence
+- Deduped findings must NOT count toward the "2+ sources" coverage criterion — two mirrors of the same article are one source
+Reason: duplicates inflate source counts, double-weight a claim in synthesis, and can mask a genuinely thin coverage as "2+ sources".
+
+**Deterministic dedup first (all modes, v4.8.0):** BEFORE the LLM gap analysis, run the mechanical pass — it catches ~80% of content duplicates (identical normalized text, same numbers + overlapping source sets, heavy source-set overlap on high-importance claims) with zero LLM cost:
+```bash
+python3 scripts/dedup_claims.py "$RUN/claims.jsonl" \
+  --registry "$RUN/source_registry.json" \
+  --out "$RUN/dedup.json"
+```
+Feed `dedup.json`'s `kept_ids`/`duplicates` into the Gap Check: dropped claims are marked `[DUP: kept C#]`, they stay in the ledger (real evidence) but do NOT pass to Synthesist as independent. Only paraphrases that share no numbers are left to the LLM dedup step above.
 
 *Decision is made by Director Review (Phase 5). This phase only collects and structures gap data.*
 
@@ -405,6 +433,7 @@ Refined queries: [only if CONTINUE]
 3. **All key aspects covered with 2+ sources** → SYNTHESIZE if ≥2 rounds completed
 4. **Persistent rate limits** blocking critical subtopics → SYNTHESIZE, note in Uncertainties
 5. **Adaptive stop (when `research_state.py` is available)** → SYNTHESIZE early if the last N findings converge: ≥3 consecutive findings for the same key aspect agree on substance (same conclusion, overlapping sources), even if rounds remain. The runtime script tracks convergence; Director reads its state. This is the formalized version of trigger 2 — instead of waiting for "no new data," stop as soon as evidence is consistent.
+6. **Per-subtopic saturation (v4.8.0, when `research_state.py` is available)** → a subtopic is saturated when it has ≥3 high-credibility sources on ALL its key aspects. Saturated subtopics are SKIPPED in the next round (they don't force CONTINUE and don't get re-queried), while other subtopics continue. The runtime script exposes `subtopic_saturated(state, subtopic, high_cred_sources, aspects_covered, aspects_total)` and `mark_saturated(state, subtopic)`. Complements global adaptive stop (trigger 5) — one exhausted subtopic should not force the whole run to stop, and one saturated subtopic should not force it to continue.
 
 **CONTINUE triggers (only if no SYNTHESIZE trigger matched):**
 - Critical subtopic has <2 sources
@@ -512,6 +541,11 @@ When the Synthesist encounters conflicting claims:
 3. Lower weight claim is presented as contradicting: "...however, {lower_source} [M] claims ..."
 4. If weights are equal, present both and note the contradiction in "Contradictions & Uncertainties"
 
+**Recency tiebreak in conflicts (all modes):** Authority weight is not the whole story — a stale official page can contradict a fresh news report. When sources conflict:
+- If the higher-weight source is OLDER than the lower-weight one by a meaningful margin (outside the time-box, or >6 months for fast-moving topics like pricing/limits/availability), present the newer claim as the current state and note the older one as "по состоянию на {год}" / "as of {year}".
+- Never silently drop the newer claim because it has lower authority — date the old claim, keep both.
+- Example: "Perplexity's pricing page [S18] says $20/month (as of 2024), but the 2026 Reddit thread [S9] reports the quota was cut — the older page reflects the pre-cut state."
+
 Default template (report format):
 
 ```
@@ -582,8 +616,11 @@ Verifier checks the report against findings:
      --registry "$RUN/source_registry.json" \
      --claims "$RUN/claims.jsonl" \
      --access "$RUN/source_access.json" \
-     --semantic-verification passed
-   ```
+         --semantic-verification passed \
+         --escalations "$RUN/escalations.json" \
+         --coverage "$RUN/coverage.json"
+        ```
+        `--escalations` enforces the v4.8.0 rule: a `needs_review` escalations file (refuted claim survived) forces `status: needs_review` — `validated` is impossible. `--coverage` (v4.8.0, required after Phase 7.7) enforces the same for `coverage_gap` — without the flag finalize never sees the coverage status and would wrongly report `validated`/`unverified_gaps`. Both flags were mandatory in the 2026-08-12 benchmark run.
 
 **Explicit failure signals (do not silence them):**
 - `source_registry.py add` on a missing `--finding-file` prints a WARNING and stores empty (no silent crash). If `RuntimeError: source registry is frozen` appears — you froze before registering; re-init the registry.
@@ -649,6 +686,47 @@ Recency: {PASS / FAIL}
    Exit 0 only when every claim is `supported`. On `refuted`/`not_found`/missing verdicts → the claim moves to Contradictions & Uncertainties (refuted: both sides cited; not_found: claim downgraded to `medium`/`low` or marked Unverified). Do NOT silently keep a refuted claim in the Key Findings as established fact.
 
 **Fact-check fatigue guard:** If >8 claims need judging, run judges in parallel batches (3-5 per batch, same as investigators). Judge output is a verdict file, not a new finding — no registry mutation.
+
+### Phase 7.6: Repair Round (verification as test-time scaling, v4.8.0)
+
+`fact_check_claims.py collect` gates on refuted/not_found verdicts — but simply moving a claim to Uncertainties wastes the information the judge just produced. Repair gives each failed claim ONE targeted pass before finalize (arXiv 2603.28376: errors in intermediate steps propagate downstream; verification beats more retrieval).
+
+**Trigger:** any `refuted` / `not_found` / `numeric mismatch` claim in `claim_verification.json`.
+
+**Budget:** ≤5 claims, ≤3 queries per claim, 1 round only. If more than 5 claims failed, repair the highest-importance ones (critical > high) and escalate the rest.
+
+**Procedure (per failed claim, orchestrator does this — no new investigators):**
+1. Read the judge's rationale (it says what the source actually says / what's missing).
+2. **re-anchor:** the claim may be correct but anchored to the wrong source (common for `not_found`). Search ≤3 queries for a source that actually supports it, register it (`source_registry.py add` — requires re-init if registry was frozen; add it BEFORE freeze in the normal flow), update the claim's evidence.
+3. **drop:** if no supporting source exists after ≤3 queries, the claim is dropped from Key Findings and moved to "Contradictions & Uncertainties" as unverified — never silently kept.
+4. **keep-with-caveat:** if a contradicting source is equal-authority, keep both sides with the conflict called out (same as falsification weak-contradiction path).
+
+**After repair:** re-run `fact_check_claims.py prepare` for the repaired claims only, judge them again, re-collect. A repaired claim that still fails → escalation (below).
+
+**Escalation (structured, v4.8.0):** instead of a prose-only block, write the machine-readable `escalations.json`:
+```bash
+python3 scripts/escalations.py "$RUN/claims.jsonl" \
+  --registry "$RUN/source_registry.json" \
+  --fact-check "$RUN/claim_verification.json" \
+  --out "$RUN/escalations.json"
+```
+Contains per claim: `claim_id`, `verdict`, `reasons` (refuted/not_found/numeric_mismatch/low_confidence), `conflicting_sources`, `recommended_action` (re-anchor/drop/keep-with-caveat). **Deterministic rule (session-tested 2026-08-12):** if a `refuted` claim — OR a `numeric_mismatch` (the source carries a DIFFERENT number than the claim — a hallucinated figure, same refuted class) — survives to the final report (repair didn't help), the run MUST be `status: needs_review` — `validated` is forbidden. `finalize_report.py --escalations` enforces this. Preserves silent mode: no mid-run interrupts; the human reviews the finished report plus `escalations.json`.
+
+### Phase 7.7: Coverage Assertions (v4.8.0)
+
+Before finalize, verify the report's claims meet coverage invariants (this is what `status: coverage_gap` means):
+```bash
+python3 scripts/check_coverage.py "$RUN/claims.jsonl" \
+  --registry "$RUN/source_registry.json" \
+  --brief "$RUN/brief.json" \
+  --out "$RUN/coverage.json"
+```
+- **Domain independence:** every key claim (importance high/critical) with ≥2 evidence sources needs those sources from ≥2 DIFFERENT domains — two mirrors of one site are one source (mirrors inflate "2+ sources").
+- **Primary-source preference:** a high-importance claim backed only by blog/social (no official_docs/paper/repo/filing) must NOT claim high confidence.
+- **Success-criteria checklist:** if `brief.json` has `success_criteria`, each must map to claims/sources.
+Any gap ⇒ `status: coverage_gap` — the report must not be finalized as `validated` until fixed (add missing sources, split mirrors, or drop the claim). Pass the result to finalize: `finalize_report.py ... --coverage "$RUN/coverage.json"` — without the flag finalize never sees the gap.
+
+**Fixing `primary_source_preference` (session-tested 2026-08-12):** the fix is to widen the claim's evidence with a primary source (official_docs/paper/repo `--source-id`), NOT to downgrade its confidence tag. Re-init the ledger → re-add ALL claims with the added `--source-id` → re-freeze (the ledger has no update command). In the LangGraph-vs-CrewAI run the architecture claim backed only by two blogs (S13/S16) failed; adding official fault-tolerance docs (S11) to its evidence made coverage pass with `[confidence: high]` intact.
 
 ## State Management
 
@@ -721,13 +799,22 @@ Raw findings saved to `.hybrid-research/{slug}/raw_findings/{subtopic}.md`.
 - **Reddit blocks unauthenticated access.** Use cookies.txt with curl for Reddit JSON API. If cookies are unavailable, mark Reddit as `[LACK_OF_DATA]` — do NOT fall back to `site:` search (returns irrelevant results for niche topics and lets the LLM fake coverage).
 - **Information overload degrades factual accuracy.** arXiv 2605.06635: Fact Check accuracy drops ~42% as tool calls scale 2→150 — more retrieval makes synthesis WORSE while link/relevance metrics stay stable. Breadth halving + adaptive stop already limit this; when a run exceeds 30 sources, Phase 7.5 semantic fact-check is MANDATORY, not optional. Never equate "more sources" with "more accurate report".
 - **Cascading errors beat end-of-turn fixes.** A wrong intermediate conclusion in Round 1 propagates through all later rounds. Run the per-round verification gate (Phase 6) every round — three questions, no new research — and don't rely only on Phase 7 to catch problems.
-- **Synthesis subagents fabricate URLs.** When generating the final report, the Synthesist may produce plausible-but-wrong GitHub URLs (wrong org name, wrong repo name). Fix: run with the source registry (`scripts/source_registry.py`) — every URL must be registered before synthesis, and `verify_report.py` rejects any `[S#]` not in the frozen registry. Common fabrications: `github.com/Tongyi-Research/DeepResearch` (correct: `Alibaba-NLP/DeepResearch`), `github.com/pewdiepie/odysseus` (correct: `pewdiepie-archdaemon/odysseus`).
+- **Synthesis subagents fabricate URLs.** When generating the final report, the Synthesist may produce plausible-but-wrong GitHub URLs (wrong org name, wrong repo name). Fix: run with the source registry (`scripts/source_registry.py`) — every URL must be registered before synthesis, and `verify_report.py` rejects any `[S#]` not in the frozen registry. Common fabrications: `github.com/Tongyi-Research/DeepResearch` (correct: `Alibaba-NLP/DeepResearch`), `github.com/pewdiepie/odysseus` (correct: `odysseus-dev/odysseus` — repo was RENAMED from `pewdiepie-archdaemon/odysseus` in Aug 2026; the old owner URL now returns 301, so treat it as stale, not dead).
+- **Absolute "only X" claims are falsifiable — write them as combinations.** In the 2026-08 ecosystem run, "мы единственные, у кого есть фальсификация" got PARTIALLY REFUTED: individual components (urlhealth, RefChecker, Paperpile, Gemini self-critique) exist elsewhere; the claim survived only as "единственные по КОМПЛЕКСУ (фальсификация + immutable registry + ledger + finalize)". Synthesist guidance: when the differentiator is a pipeline, state it as the combined set ("only X has {A+B+C}"), not as sole ownership of a single component. The falsification round (Phase 5.5) is designed to hunt exactly these absolute claims — expect hits, phrase defensively.
 - **Synthesist can fail.** If it does, don't discard findings — compile them into a fallback report with `status: unverified_gaps`. Raw data is better than no data.
 - **Short reports happen.** If the final report is under 400 words, auto-expand with a follow-up prompt — don't accept a thin report.
 - **verify_report.py is ruthless about marker placement.** Claim markers `<!-- claims: C# -->` must be at the END of a block's lines — never on separate lines (a marker-only line is treated as a block of its own and fails). Every factual prose paragraph needs BOTH `[S#]` citations AND a claim marker; a prose paragraph without `[S#]` fails as "uncited factual prose" even if it has a marker. List items get markers per-item; a long list item the formatting pass missed breaks validation. The block's `[S#]` sources must overlap the cited claim's evidence sources — `verify_report` cross-checks. Sources header must be exactly `## Sources` (English), entries `[S#] Title — URL` in registry order. Full rules: `references/verify-report-citation-format.md`.
-- **Add registry/claims via terminal, not execute_code.** `source_registry.py add` and `claim_ledger.py add` fail SILENTLY inside execute_code (exceptions swallowed) — registry stays empty and you only notice at freeze. Run adds through terminal, verify output; `--finding-file` paths must exist or the add fails. `--source-id` (not `--evidence-json`) is the reliable way to link claim evidence.
+- **Repairing markers after annotate (session-tested 2026-08-11):** `annotate_report.py --apply` can glue a claim from a DIFFERENT section onto bullet lists (C9 stamped where C18/C19/C20 belonged). `verify_report.py` catches it as "claim/source mismatch near line N" — but the flagged line may be BLANK; the offending block starts at the nearest preceding non-empty line. Deterministic fix — remap by evidence: for each block parse its `[S\d+]`s, find the claim whose evidence list contains one of them, rewrite the `<!-- claims: C# -->` marker; re-run verify until PASS. Also: if sources were re-registered mid-run (re-init after a swap/typo), audit the `## Sources` header list ONE-TO-ONE against `source_registry.json` — stale `S#`s surviving in the body now point at NEW entities (S29/S30 swapped arxiv ↔ blog.google in the 2026-08 tools run); fix IDs in BOTH the body citations and the Sources list.
+- **verify 'line N' failures can point at Contradictions bullets — find them with scan_narrative_blocks.** In the 2026-08-12 benchmark run, `verify_report.py` FAIL lines ('list block near line 61/62') pointed at Contradictions & Uncertainties bullets (single-source notes like `uvik` token-overhead, LangDrained) that carried NO `[S#]` and NO claim marker — not at the section you were just editing. Don't guess which block: dump `report_model.scan_narrative_blocks(narrative)` and print every block where `not b.claim_ids or not b.source_ids` (line numbers are body-relative — add frontmatter length for file offsets). Fix each line by appending `[S#]` AND `<!-- claims: C# -->`. When you hand-stamp a marker onto such a bullet, the cited `[S#]` MUST be inside that claim's evidence — otherwise verify fails 'claim/source mismatch near line N'. The right fix for a mismatch is widening the claim's evidence (re-init → re-add ALL claims with the added `--source-id` → re-freeze; same as the no-update-command rule), NOT swapping the marker to whatever claim happens to cite that source. Session-tested 2026-08-12: C5 gained S17 in evidence to cover the token-overhead bullet.
+- **annotate re-runs can EAT the `## Sources` header.** On a re-run after text edits, `annotate_report.py --apply` glues the `## Sources` line onto the previous block's claim marker (`<!-- claims: C# -->## Sources` on one line), so the header fails `^##` regex and the parser sees `sources: 0` — the entire source list becomes orphan lines. Session-tested 2026-08-12: fix is manual — split the glued line back into `<!-- claims: C# -->` and a standalone `## Sources` line, then re-run verify. Symptom to watch: verify passes structure but reports `sources: 0`; check the line right before what should be the first `[S#]` entry.
+- **Add registry/claims via terminal, not execute_code.** `source_registry.py add` and `claim_ledger.py add` fail SILENTLY inside execute_code (exceptions swallowed) — registry stays empty and you only notice at freeze. Run adds through terminal, verify output; `--finding-file` paths must exist or the add fails. `--source-id` (not `--evidence-json`) is the reliable way to link claim evidence. **Batch registration (20+ sources in one terminal call):** define a shell helper `add() { python3 scripts/source_registry.py add "$RUN/source_registry.json" --title "$2" --url "$1" --source-type "$3" --date "$4" --claim-class "$5" --finding-file /tmp/fc-empty.md; }` — one shared empty placeholder satisfies `--finding-file` for every entry (the file only has to exist), so a whole investigator batch registers without per-source finding files. Verify with `python3 -c "import json; print(len(json.load(open('.../source_registry.json'))['sources']))"`. Session-tested 2026-08-12: 24 sources seeded this way in one pass.
+- **delegate_task summaries are truncated — read the cache files.** In-context consolidated results trim findings (`[SUMMARY TRUNCATED] ... Showing X chars of Y`); the FULL text is saved per task at `/home/demogam/.hermes/cache/delegation/subagent-summary-{task}-{timestamp}.txt` (live transcripts under `live/`). Before writing claims: (1) harvest URLs across all summaries with a regex one-liner — `re.findall(r'https?://[^\s)\"<>]+', data)` over the `subagent-summary-*.txt` glob — to seed the source registry (investigators report URLs inline in findings, not as a separate list); (2) read the full summaries for evidence details before converting findings to claims, since the in-context digest omits the middle. Writing claims from the digest alone loses evidence specifics. Session-tested 2026-08-12 on a 3-investigator fan-out (24 URLs harvested, 10 claims written from full text).
 - **Delegated director can die of context overflow.** If the nested director crashes, recover its subagents' completed work from the run log/transcripts instead of re-delegating — often 2/3 investigators already returned. Finish remaining topics manually (parallel web_search), then run the normal registry/verify/finalize chain.
 - **Re-freeze after recreating claims.** If the validation chain was interrupted and you re-create/re-add `claims.jsonl` (or the registry) after an earlier `freeze`, you MUST `freeze` again before `finalize_report.py` — finalize checks frozen state, and a recreated unfrozen ledger fails it even when `verify_report.py` passed. Safe resume order after interruption: freeze registry → freeze claims → verify_report → check_sources → finalize. **The claim ledger has NO update command** — widening a claim's evidence after freeze means re-init (wipes all claims) → re-add EVERY claim → re-freeze. Get `--source-id` lists complete the first time: each claim's evidence must cover all `[S#]`s its blocks cite, or you'll pay a full claims rewrite per mismatch. Details + report_model.py debug recipe: `references/verify-report-citation-format.md`.
+- **Markdown paragraph = one block.** In `report_model.py`, consecutive non-blank lines form a SINGLE narrative block; a citation anywhere in the paragraph covers the whole block. So corrupting only ONE `[S#]` in a two-line paragraph does NOT drop `citation_coverage` — the surviving citation still covers the block. When writing tests that simulate a citation drop (or debugging why a coverage test passes), remove citations from the whole paragraph, not one line, and check block boundaries with `report_model.py` block scan first.
+- **Parser offsets are body-relative, not file-relative.** `scan_narrative_blocks` and friends run on the report body WITHOUT YAML frontmatter; if you apply their returned indices to the full file text, everything shifts by the frontmatter length (in one real bug: 18 lines) and edits land in the wrong place. Always: strip frontmatter → operate on body → rebuild file with frontmatter reattached. Also: a standalone `## Sources` header is dropped if you rebuild by "everything after the last heading" — find the header explicitly.
+- **Version claims: verify via the package JSON API, never the rendered HTML page.** In the 2026-08-12 LangGraph run, the fact-check judge returned `refuted` on C1 ("langgraph 1.2.11") because the PyPI HTML page's file list showed 1.2.10. Two traps: (1) PyPI's `releases` dict sorts LEXICOGRAPHICALLY (`'1.2.10' > '1.2.9'` as strings), so the rendered page's "latest files" can display a lower version; (2) the HTML page lags the JSON endpoint. Deterministic fix: `curl -s https://pypi.org/pypi/<pkg>/json` → `info.version` (field is authoritative; verify the version exists in `releases` with `upload_time`). For ANY claim about an artifact's current version, instruct judges to check the machine JSON endpoint, not the HTML page. Orchestrator rule: when a judge returns `refuted` on a version claim, re-verify against the JSON API FIRST — if it confirms the claim, rewrite the verdict to `supported` with the deterministic evidence in `rationale`, and do NOT burn a judge round on it. This is a legitimate repair (Repair Round step 2) without re-dispatching. Session-tested 2026-08-12: C1 refuted → PyPI JSON confirmed 1.2.11 (upload 2026-08-11T14:00:35Z) → verdict rewritten, claim kept.\n- **Composite claims: one evidence source per fact group, or the judge returns `not_found`.** A claim bundling several independent facts (stars + forks + PyPI downloads + company count + dates) and anchored to ONE source will get `not_found`/partial from the fact-check judge, because no single page carries all of it. Session-tested 2026-08-12: C2 (GitHub stars/forks/MIT from repo page + PyPI downloads + ~400 companies) and C7 (LangGraph backward-compat from the blog + CrewAI release cadence from changelog) both got `not_found` — the judge confirmed only the part the cited page actually covers. Fix: when writing claims, either split composite facts into separate claims OR attach one evidence `--source-id` per fact group covering that exact fact (repo page for stars/forks, PyPI JSON for downloads, changelog for cadence). If the judge still flags it, that's the Repair Round re-anchor trigger — add the missing sources, not a rewrite.
+- **Domain extraction collapses subdomains — design fixtures for it.** `io_utils.domain_of` takes the last 2 labels, so `a.example.com` and `b.example.com` both become `example.com`. That's CORRECT for `check_coverage.py` domain-independence (two subdomains of one registrable domain ARE one source family — e.g. mirror/blog subdomains). But it means unit fixtures must use genuinely different registrable domains (`example.com` vs `other.org`), not `a.example.com` vs `b.example.com` — the latter silently passes/fails the wrong way and looks like a script bug. Session-tested 2026-08-12: 6 check_coverage tests failed because fixtures used subdomains; fix was in the TESTS, not the script.
 
 ## Edge Cases
 

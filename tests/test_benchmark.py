@@ -26,6 +26,34 @@ class BenchmarkTests(unittest.TestCase):
             a=self.make_run(Path(tmp)/'a'); b=self.make_run(Path(tmp)/'b',status='unverified_gaps')
             agg=aggregate_runs([a,b]); self.assertEqual(agg['runs'],2); self.assertEqual(agg['validated'],0.5); self.assertEqual(agg['citation_coverage'],1.0)
 
+    def test_draco_rubric_metrics_present(self):
+        from benchmark import score_run
+        with tempfile.TemporaryDirectory() as tmp:
+            d=self.make_run(tmp)
+            # fact-check verdicts: one supported, one not_found → penalty applies
+            (d/'claim_verification.json').write_text(json.dumps({
+                'verdicts': 2, 'supported': 1, 'refuted': 1, 'not_found': 0,
+                'numeric_precision': {'claims_with_numbers': 1, 'exact': 0, 'rate': 0.0},
+            }))
+            score=score_run(d)
+            self.assertIn('rubric_factual_accuracy', score)
+            self.assertIn('rubric_total', score)
+            self.assertIn('rubric_negative_hallucination', score)
+            # factual 0.5 - 0.35 (refuted) - 0.25 (numeric mismatch) = 0.0
+            self.assertEqual(score['rubric_factual_accuracy'], 0.0)
+
+    def test_draco_rubric_clean_run_high_score(self):
+        from benchmark import score_run
+        with tempfile.TemporaryDirectory() as tmp:
+            d=self.make_run(tmp)
+            (d/'claim_verification.json').write_text(json.dumps({
+                'verdicts': 2, 'supported': 2, 'refuted': 0, 'not_found': 0,
+                'numeric_precision': {'claims_with_numbers': 0, 'exact': 0, 'rate': None},
+            }))
+            score=score_run(d)
+            self.assertEqual(score['rubric_factual_accuracy'], 1.0)
+            self.assertGreater(score['rubric_total'], 0.7)
+
 class EvalDatasetTests(unittest.TestCase):
     def test_dataset_contains_30_diverse_questions(self):
         path=ROOT/'evals'/'questions.json'

@@ -50,6 +50,22 @@ class ResearchStateTests(unittest.TestCase):
             decision=self.decide_next(path,[{'id':'G1','importance':1,'uncertainty':1,'resolvability':1}])
             self.assertEqual(decision['decision'],'SYNTHESIZE'); self.assertEqual(decision['reason'],'budget_exhausted')
 
+    def test_subtopic_saturated_when_sources_and_aspects_covered(self):
+        from research_state import init_state, subtopic_saturated
+        with tempfile.TemporaryDirectory() as tmp:
+            path=Path(tmp)/'state.json'; state=self.init_state(path,'moderate')
+            self.assertTrue(subtopic_saturated(state,'pricing',high_cred_sources=3,key_aspects_covered=2,key_aspects_total=2))
+            self.assertFalse(subtopic_saturated(state,'pricing',high_cred_sources=2,key_aspects_covered=2,key_aspects_total=2))
+            self.assertFalse(subtopic_saturated(state,'pricing',high_cred_sources=3,key_aspects_covered=1,key_aspects_total=2))
+
+    def test_mark_saturated_persists(self):
+        from research_state import init_state, mark_saturated, subtopic_saturated
+        with tempfile.TemporaryDirectory() as tmp:
+            path=Path(tmp)/'state.json'; state=self.init_state(path,'moderate')
+            state=mark_saturated(state,'features')
+            self.assertTrue(state['subtopic_saturation']['features']['saturated'])
+            self.assertTrue(subtopic_saturated(state,'features',high_cred_sources=1,key_aspects_covered=0,key_aspects_total=1))
+
 class ConcurrentResearchStateTests(ResearchStateTests):
     def test_concurrent_consumption_does_not_lose_updates(self):
         from concurrent.futures import ThreadPoolExecutor

@@ -119,11 +119,15 @@ hybrid-deep-research/
 │   ├── verify_report.py          # Structural validation of the report
 │   ├── finalize_report.py        # Writes status: validated only after checks pass
 │   ├── annotate_report.py        # Auto-inserts claim markers (<!-- claims: C# -->)
-│   ├── fact_check_claims.py      # Semantic fact-check tasks + verdict collection (arXiv triad)
+│   ├── fact_check_claims.py      # Semantic fact-check tasks + verdicts + verbatim numeric check
 │   ├── eval_citations.py         # Citation-quality scoring: link works / relevant / fact check
-│   ├── research_state.py         # Global budgets + adaptive stopping
+│   ├── dedup_claims.py           # Deterministic claim dedup (same numbers, source overlap)
+│   ├── check_coverage.py         # Coverage assertions: domain independence + primary preference
+│   ├── escalations.py            # Structured human escalation (refuted ⇒ needs_review)
+│   ├── run_benchmark.py          # Benchmark runner: briefs from evals + baseline tracking
+│   ├── research_state.py         # Global budgets + adaptive stop + per-subtopic saturation
 │   └── ...                       # io_utils, report_model, benchmark
-├── tests/                        # 84 unit/integration tests
+├── tests/                        # 135 unit/integration tests
 ├── fixtures/                     # Valid EN/ES end-to-end fixtures
 ├── evals/                        # Benchmark questions
 ├── references/
@@ -136,6 +140,22 @@ hybrid-deep-research/
 
 LLMs make semantic decisions; `scripts/` enforce invariants. Run `python3 -m pytest tests/` to verify. The pipeline degrades gracefully: without Python it falls back to prompt-level URL checks and marks the report `unverified_gaps`.
 
+## Benchmarking
+
+Track whether the skill actually improves over time — not just "tests pass":
+
+```bash
+# create a run brief from an evals question
+python3 scripts/run_benchmark.py prepare --question software-01 --out .hybrid-research/bench-software-01
+# run the research pipeline on that brief (agent work), then score it:
+python3 scripts/run_benchmark.py score --runs .hybrid-research/bench-software-01 \
+    --baseline .hybrid-research/benchmark-results.json
+# view the baseline table
+python3 scripts/run_benchmark.py baseline --baseline .hybrid-research/benchmark-results.json
+```
+
+`score` combines `benchmark.py` quality metrics (validation, citation coverage, primary-source ratio, access health, budget utilization) with `eval_citations.py` triad scores (link works / relevant / fact check) and the **DRACO-style rubric** (`rubric_*` metrics): factual accuracy ≈50% weight + negative penalties for refuted/not_found claims, numeric mismatches, and unresolved critical claims. Appends to the baseline, and exits 1 if any metric degraded vs the previous run of the same id. See `evals/questions.json` for available benchmark questions.
+
 ## Output
 
 Reports saved to `.hybrid-research/{slug}/`:
@@ -147,7 +167,7 @@ Reports saved to `.hybrid-research/{slug}/`:
 ## Limitations
 
 - All roles share one model (`delegation.model`) — no per-role model override in `delegate_task`.
-- Reddit requires `cookies.txt` for reliable access. Without cookies, falls back to `site:` search (limited results for niche topics).
+- Reddit requires `cookies.txt` (or rdt-cli) for reliable access. Without it, Reddit sources are marked `[LACK_OF_DATA]` — no `site:` fallback.
 - GitHub API rate limits: 60 req/hour without token, 5000 with token.
 - Social platform APIs may require authentication or have rate limits.
 

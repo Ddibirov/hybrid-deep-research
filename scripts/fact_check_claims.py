@@ -46,6 +46,7 @@ SUPPORTED = "supported"
 REFUTED = "refuted"
 NOT_FOUND = "not_found"
 VERDICTS = {SUPPORTED, REFUTED, NOT_FOUND}
+NUMERIC_MATCHES = {"match", "mismatch", "none"}
 
 JUDGE_PROMPT = """You are a fact-check judge. Decide whether the cited source actually supports the claim.
 
@@ -61,7 +62,15 @@ RULES:
 - A generic page about the topic is NOT enough: the claim must be findable in THIS source.
 - If you could not read the page (blocked, timeout, paywall), answer not_found with rationale "unable to read source".
 
+NUMERIC CHECK (verbatim, strict):
+The claim may contain numbers (prices, dates, percentages, statistics, versions). The
+source MUST carry THE SAME number for the claim to be `supported`. A page that talks
+about the topic but gives a different figure, or no figure at all, is NOT `supported`
+for that claim — it is `not_found` (if no number) or `refuted` (if a different number).
+List every number you found in the source next to the number claimed.
+
 Verdict MUST be exactly one of: supported | refuted | not_found
+Answer field `numeric_check` with: {{"match": "match|mismatch|none", "claimed": ["numbers in the claim"], "found": ["numbers actually present in the source"]}}
 """
 
 
@@ -98,6 +107,16 @@ def _evidence_source_ids(claim: dict) -> list[str]:
     return [e.get("source_id") for e in claim.get("evidence", []) if isinstance(e, dict) and e.get("source_id")]
 
 
+def _claimed_numbers(claim: dict) -> list[str]:
+    """Mechanical extraction of numbers from the claim text (verbatim check anchor)."""
+    import re as _re
+    text = claim.get("claim", "") or ""
+    found: list[str] = []
+    for match in _re.finditer(r"\d+(?:[.,]\d+)?", text):
+        found.append(match.group(0).replace(",", ""))
+    return found
+
+
 def prepare(claims_path: Path, registry_path: Path, out: Path) -> int:
     claims = load_claims(claims_path)
     registry = load_registry(registry_path)
@@ -118,6 +137,7 @@ def prepare(claims_path: Path, registry_path: Path, out: Path) -> int:
             "claim": claim.get("claim", ""),
             "confidence": claim.get("confidence", "unknown"),
             "importance": claim.get("importance", "unknown"),
+            "claimed_numbers": _claimed_numbers(claim),
             "evidence_sources": [],
             "generated_at": utc_now(),
             "judge_prompt": JUDGE_PROMPT.format(
@@ -150,6 +170,7 @@ def prepare(claims_path: Path, registry_path: Path, out: Path) -> int:
             "verdict": "supported | refuted | not_found",
             "rationale": "str — 1-3 sentences; for refuted, quote what the source actually says",
             "evidence_source_id": "str — which evidence source the verdict applies to",
+            "numeric_check": "dict — {match: match|mismatch|none, claimed: [numbers in claim], found: [numbers in source]}",
             "checked_at": "ISO-8601",
         },
     }
@@ -184,6 +205,11 @@ def collect(claims_path: Path, verdicts_dir: Path, out: Path) -> int:
         if v not in VERDICTS:
             problems.append(f"{vf.name}: invalid verdict {v!r}")
             continue
+        nc = verdict.get("numeric_check")
+        if nc is not None:
+            if not isinstance(nc, dict) or nc.get("match") not in NUMERIC_MATCHES:
+                problems.append(f"{vf.name}: invalid numeric_check {nc!r}")
+                continue
         results[cid] = verdict
 
     summary = {
@@ -193,6 +219,7 @@ def collect(claims_path: Path, verdicts_dir: Path, out: Path) -> int:
         "supported": sum(1 for r in results.values() if r.get("verdict") == SUPPORTED),
         "refuted": sum(1 for r in results.values() if r.get("verdict") == REFUTED),
         "not_found": sum(1 for r in results.values() if r.get("verdict") == NOT_FOUND),
+        "numeric_precision": _numeric_precision(results, tasks),
         "missing_verdicts": [cid for cid in tasks if cid not in results],
         "problems": problems,
         "verdicts_detail": results,
@@ -202,6 +229,9 @@ def collect(claims_path: Path, verdicts_dir: Path, out: Path) -> int:
     print(f"Fact-check summary: {summary['supported']} supported / "
           f"{summary['refuted']} refuted / {summary['not_found']} not_found "
           f"({summary['verdicts']}/{summary['total_claims_with_evidence']} verdicts)")
+    np_ = summary["numeric_precision"]
+    print(f"  numeric_precision: {np_['exact']}/{np_['claims_with_numbers']} claims with numbers "
+          f"match their source (rate {np_['rate']})")
     if summary["missing_verdicts"]:
         print(f"MISSING verdicts: {summary['missing_verdicts']}", file=sys.stderr)
     for cid, verdict in results.items():
@@ -209,6 +239,27 @@ def collect(claims_path: Path, verdicts_dir: Path, out: Path) -> int:
             print(f"  {cid}: {verdict.get('verdict')} — {verdict.get('rationale', '')[:120]}", file=sys.stderr)
 
     return 1 if (summary["refuted"] or summary["not_found"] or summary["missing_verdicts"] or problems) else 0
+
+
+def _numeric_precision(results: dict[str, dict], tasks: dict[str, dict]) -> dict:
+    """Verbatim numeric check: of the claims whose text carries numbers, how many
+    verdicts confirm the SAME number appears in the source (numeric_check.match)."""
+    claims_with_numbers = 0
+    exact = 0
+    for cid, task in tasks.items():
+        if task.get("claimed_numbers"):
+            claims_with_numbers += 1
+    for cid, verdict in results.items():
+        nc = verdict.get("numeric_check")
+        if not isinstance(nc, dict):
+            continue
+        if nc.get("match") == "match":
+            exact += 1
+    return {
+        "claims_with_numbers": claims_with_numbers,
+        "exact": exact,
+        "rate": round(exact / claims_with_numbers, 3) if claims_with_numbers else None,
+    }
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -55,7 +55,96 @@ def score_run(run_dir: Path) -> dict[str, float | int | str]:
     }
     for key in ('factual_precision','completeness','citation_precision'):
         if isinstance(evaluation.get(key),(int,float)): result[key]=float(evaluation[key])
+
+    # v4.8.0 DRACO-style rubric (ecosystem candidate #2): negative criteria for
+    # hallucination + rubric axes aggregated from the same run artifacts.
+    # Factual accuracy ~50% weight, negative criteria penalize unsubstantiated
+    # claims, refuted/not_found verdicts, numeric mismatches.
+    result.update(_draco_rubric(run_dir, ledger, fact_check=_json(run_dir/'claim_verification.json',{})))
     return result
+
+
+def _draco_rubric(run_dir: Path, ledger: dict, fact_check: dict) -> dict[str, float]:
+    """DRACO-style rubric score: 4 axes, factual accuracy ≈50% weight, negative
+    criteria for hallucination. Deterministic — computed from run artifacts, not
+    an LLM judgment. Published as `rubric_*` metrics in the benchmark.
+
+    Axes (DRACO/DRB-II adapted):
+      - factual_accuracy (≈50%): supported claim rate from fact-check verdicts;
+        falls to 0 if any refuted claim survived to the final report.
+      - breadth_depth (25%): coverage of registered sources vs cited + subtopic
+        diversity via claim_marker coverage.
+      - presentation (12.5%): structural validity + claim marker discipline.
+      - primary_source_citation (12.5%): primary_source_ratio.
+    Negative criteria (penalties, subtract from factual_accuracy before scaling):
+      - refuted_claims  ×0.35 each
+      - not_found_claims ×0.20 each
+      - numeric_mismatches ×0.25 each (verbatim numeric check failures)
+      - unresolved_critical_claims ×0.30 each
+    """
+    total_fc = fact_check.get('verdicts') or 0
+    supported = fact_check.get('supported') or 0
+    refuted = fact_check.get('refuted') or 0
+    not_found = fact_check.get('not_found') or 0
+    np_ = fact_check.get('numeric_precision') or {}
+    numeric_total = np_.get('claims_with_numbers') or 0
+    numeric_exact = np_.get('exact') or 0
+
+    # negative criteria
+    numeric_mismatches = max(0, numeric_total - numeric_exact)
+    unresolved_critical = sum(
+        1 for c in ledger.get('claims', [])
+        if str(c.get('importance','')).lower()=='critical' and c.get('verification')!='supported'
+    )
+
+    if total_fc:
+        factual = supported / total_fc
+        penalty = (
+            refuted * 0.35 + not_found * 0.20 + numeric_mismatches * 0.25
+            + unresolved_critical * 0.30
+        )
+        factual = max(0.0, factual - penalty)
+    else:
+        factual = 0.0
+        penalty = 0.0
+
+    blocks = [b for b in scan_narrative_blocks(_split_narrative(run_dir)) if not is_exempt_block(b)]
+    breadth = (sum(bool(b.source_ids) for b in blocks) / len(blocks)) if blocks else 1.0
+    presentation = (0.5 * (1.0 if _manifest_flag(run_dir,'structural_validation')=='passed' else 0.0)
+                    + 0.5 * ((sum(bool(b.claim_ids) for b in blocks) / len(blocks)) if blocks else 1.0))
+
+    rubric = {
+        'rubric_factual_accuracy': round(factual, 6),
+        'rubric_breadth_depth': round(breadth, 6),
+        'rubric_presentation': round(presentation, 6),
+        'rubric_primary_source': round(primary_ratio(run_dir), 6),
+        'rubric_total': round(factual * 0.5 + breadth * 0.25 + presentation * 0.125 + primary_ratio(run_dir) * 0.125, 6),
+        'rubric_negative_hallucination': round(penalty, 6),
+    }
+    return rubric
+
+
+def _split_narrative(run_dir: Path) -> str:
+    text = (run_dir / 'report.md').read_text(encoding='utf-8') if (run_dir / 'report.md').exists() else ''
+    _, body = parse_frontmatter(text)
+    narrative, _ = split_sources(body)
+    return narrative
+
+
+def _manifest_flag(run_dir: Path, key: str) -> str:
+    try:
+        return _json(run_dir / 'report_manifest.json', {}).get(key, '')
+    except Exception:
+        return ''
+
+
+def primary_ratio(run_dir: Path) -> float:
+    try:
+        registry = _json(run_dir / 'source_registry.json', {'sources': []})
+        sources = registry.get('sources', [])
+        return (sum(str(s.get('source_type','')).lower() in PRIMARY_TYPES for s in sources) / len(sources)) if sources else 0.0
+    except Exception:
+        return 0.0
 
 
 def aggregate_runs(run_dirs: list[Path]) -> dict[str,float|int]:

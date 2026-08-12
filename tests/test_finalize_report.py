@@ -44,6 +44,28 @@ class FinalizerTests(unittest.TestCase):
             data=load_registry(registry); data['frozen']=False; registry.write_text(json.dumps(data),encoding='utf-8')
             with self.assertRaises(RuntimeError): finalize(report,manifest,registry,claims,semantic_verification='passed')
 
+    def test_escalations_needs_review_forbids_validated(self):
+        from finalize_report import finalize
+        with tempfile.TemporaryDirectory() as tmp:
+            report,manifest,registry,claims=self.make_artifacts(tmp)
+            esc=Path(tmp)/'escalations.json'
+            esc.write_text(json.dumps({
+                'status':'needs_review',
+                'escalations':[{'claim_id':'C1','verdict':'refuted','reasons':['refuted'],
+                                'conflicting_sources':['S1'],'recommended_action':'re-anchor'}],
+            }),encoding='utf-8')
+            result=finalize(report,manifest,registry,claims,semantic_verification='passed',escalations_path=esc)
+            self.assertEqual(result['status'],'needs_review')
+
+    def test_escalations_clean_allows_validated(self):
+        from finalize_report import finalize
+        with tempfile.TemporaryDirectory() as tmp:
+            report,manifest,registry,claims=self.make_artifacts(tmp)
+            esc=Path(tmp)/'escalations.json'
+            esc.write_text(json.dumps({'status':'clean','escalations':[]}),encoding='utf-8')
+            result=finalize(report,manifest,registry,claims,semantic_verification='passed',escalations_path=esc)
+            self.assertEqual(result['status'],'validated')
+
 class IntegrityFinalizerTests(FinalizerTests):
     def test_tampered_frozen_registry_is_rejected(self):
         from finalize_report import finalize
