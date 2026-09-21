@@ -188,6 +188,14 @@ Read `delegation.model` from agent config. Use it for all roles. Do NOT display 
 
 **Date grounding:** Before generating the brief, determine the current date. Add a date preamble to all downstream prompts: "Today's date is {Month DD, YYYY}. When a search query needs a year or refers to 'latest'/'current'/'this year', use {YYYY} — never a year inferred from training data."
 
+**Input collection (decision-oriented requests only):** If the request targets a concrete decision/problem/project ("что мне делать", "разработай стратегию", "выбери платёжку для моего SaaS", personalised output), FIRST collect the 5-block design input — short interview, one batch, take from dialogue context when already known, do not drag it out:
+1. **Goal** — concrete task + desired outcome + readiness criterion (what must be in the report to act on it). Never "собери всё про X" — that is plain search.
+2. **Context** — project, product, audience, geography, current state (traffic/SEO/revenue), competitors, KPI, budget/constraints. Without it the model writes "среднее по больнице".
+3. **Content** — explicit report blocks: how-it-works primer, week/month roadmap, task checklists, competitor cases, team/budget under THEIR budget, «боль → решение → фича» table, funnels, real user quotes. Also what to EXCLUDE.
+4. **Style** — pyramid principle: conclusions/recommendations first, then supporting arguments and data; explain HOW each recommendation was reached; bullets, tables, checklists, short sentences. Тезис → объяснение → тезис → объяснение.
+5. **Sources** — source bias: official/scientific vs user reviews/pain vs cases/guides. Unspecified bias → model averages everything into mush. E.g. "предпочитай кейсы и гайды, не официальную документацию", "основной упор на Reddit/X отзывы", or for legal work "источники — приговоры и судебные акты, не новости".
+Feed all 5 into the brief (Goal, Context, Scope, Source bias, Style→Output format).
+
 Read user input. First, classify the question into one category:
 
 - **product**: "best X", "top X", "which X to buy", product/service recommendations
@@ -209,10 +217,13 @@ Generate structured research brief:
 RESEARCH BRIEF
 ═══════════════
 Topic: {topic}
+Goal: {concrete task + desired outcome + readiness criterion — REQUIRED for decision-oriented requests}
+Context: {project/product/audience/current state/competitors/budget — REQUIRED for decisions, else "среднее по больнице"}
 Date context: {current date — used to ground all queries in the correct time period}
 Category: {detected category}
-Output format: {derived from category, or user-specified}
-Scope: {specific aspects to investigate}
+Output format: {derived from category, or user-specified + pyramid style when decision-oriented}
+Scope: {specific aspects to investigate + explicit report blocks (roadmap, checklists, cases, «боль → фича» table, quotes)}
+Source bias: {official/scientific vs reviews/pain vs cases — leave empty only for general questions}
 Time-box: {last 30 days / last year / all time / specific date range}
 Depth: {surface / moderate / exhaustive}
 Sources: {web, reddit, x, hn, youtube, github — select relevant}
@@ -514,6 +525,15 @@ Synthesist in EVOLVING mode MUST preserve this structure across rounds. Only add
 - If the expanded version is longer than the original, use it.
 - This check runs only on the FINAL report, not on per-round evolving drafts.
 
+**Report design — pyramid + action-spec (decision-oriented requests):** The final report is an EXECUTABLE document, not an encyclopedia:
+- Thesis bullets first (key conclusions as a list), explanations after. Тезис → объяснение → тезис → объяснение.
+- Task checklists split by weeks/months (Gantt table when applicable)
+- Comparison table of options with risks and conclusions FOR THE USER'S situation
+- «Боль → решение → фича» table when user-pain sources exist
+- Each recommendation explains how it was reached
+- Final section "Что делать дальше" = one-line executable spec (agent/team/the user can act on it directly)
+- Real user quotes kept verbatim with sources (never paraphrase-pretend)
+
 **Adapt the report structure to the Output format from the brief (or detected category):**
 
 | Output format | Structure |
@@ -782,6 +802,9 @@ Raw findings saved to `.hybrid-research/{slug}/raw_findings/{subtopic}.md`.
 
 ## Pitfalls
 
+- **Don't skip input collection for decision requests.** Without Goal+Context+Source bias the report is "среднее по больнице" — personalized to nobody. A 2-minute interview beats a useless 20-minute report.
+- **"Собери всё про X" — не цель.** That is plain search at higher cost. A goal always contains an action and an outcome.
+- **Промт-заклинания вредят.** Roles like "эксперт с 15-летним опытом" blur the answer. Concrete specifics > long prompts.
 - **Don't skip Prompt Master.** Director gets confused by vague user input. Always brief first.
 - **Max 3 investigators per batch.** If Director created 4 subtopics, run in batches of 3, then 1.
 - **Handle 429 rate limits explicitly.** Return `[SOURCE_ERROR: RATE_LIMIT]` and stop. Never retry in the same round. Reddit has no fallback — mark `[LACK_OF_DATA]` rather than faking coverage.
